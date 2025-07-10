@@ -71,6 +71,7 @@ def list_services(namespace: str = "default") -> str:
         service_data = []
         for service in services:
             service_name = service.metadata.name
+            print(f"[DEBUG] Service name: {service_name}")
             # Services don't have a status.phase field like pods do
             status = "Active" if service.metadata.deletion_timestamp is None else "Terminating"
             cluster_ip = "N/A"
@@ -102,15 +103,20 @@ def list_services(namespace: str = "default") -> str:
                 "node_port": node_port,
                 "selector": selector
             })
+            print(f"[DEBUG] Service data: {service_data}")
         
         if service_data:
+            print(f"[DEBUG] Service data: {service_data}")
             return json.dumps({"services": service_data}, indent=2)
         else:
+            print(f"[DEBUG] No services found in namespace '{namespace}'")
             return json.dumps({"message": f"No services found in namespace '{namespace}'"})
-            
+           
+        
     except Exception as e:
         return json.dumps({"error": f"Error fetching services: {str(e)}"})        
 
 if __name__ == "__main__":
     # Run the server with stdio transport
     mcp.run(transport='stdio')
+    #list_services(namespace="default")

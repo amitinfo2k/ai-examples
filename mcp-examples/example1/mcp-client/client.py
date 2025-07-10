@@ -88,7 +88,7 @@ class MCPClient:
 
         assistant_message_content = []
         for content in response.content:
-            #print("\n[DEBUG] Content type: " + content.type)
+            print("\n[DEBUG] Content type: " + content.type)
             if content.type == 'text':
                 final_text.append(content.text)
                 assistant_message_content.append(content)
@@ -105,6 +105,9 @@ class MCPClient:
                 if "pods" in data:
                     table_data = [[p["pod_name"], p["status"], p["cpu_request"], p["memory_request"]] for p in data["pods"]]
                     print(tabulate(table_data, headers=["Pod Name", "Status", "CPU Request", "Memory Request"], tablefmt="grid"))
+                elif "services" in data:
+                    table_data = [[s["service_name"], s["status"], s["cluster_ip"], s["ports"], s["node_port"], s["selector"]] for s in data["services"]]
+                    print(tabulate(table_data, headers=["Service Name", "Status", "Cluster IP", "Ports", "Node Port", "Selector"], tablefmt="grid")) 
                 elif "error" in data:
                     print(data["error"])
                 else:
