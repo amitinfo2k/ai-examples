@@ -26,7 +26,7 @@ class MCPClient:
             server_url: URL of the HTTP MCP server (e.g., http://localhost:8000)
         """
         # Ensure the URL has the /mcp path
-        if not '/mcp' in server_url:
+        if '/mcp' not in server_url:
             if server_url.endswith('/'):
                 server_url = server_url + 'mcp'
             else:
@@ -66,13 +66,14 @@ class MCPClient:
     
     async def process_query(self, query: str) -> str:
         """Process a query using Claude and available tools"""
+        # Initialize messages with user query
         messages = [
             {
                 "role": "user",
                 "content": query
             }
         ]
-
+        
         response = await self.session.list_tools()
         available_tools = [{
             "name": tool.name,
@@ -85,6 +86,7 @@ class MCPClient:
         response = self.anthropic.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=1000,
+            system="Format Kubernetes resource data as clean markdown tables only. No explanations or text outside the table.",
             messages=messages,
             tools=available_tools
         )
@@ -92,6 +94,7 @@ class MCPClient:
         # Process response and handle tool calls
         final_text = []
 
+        # Store the assistant's message content for the conversation history
         assistant_message_content = []
         for content in response.content:
             print("\n[DEBUG] Content type: " + content.type)
@@ -105,19 +108,11 @@ class MCPClient:
                 #print("\n[DEBUG] Tool args: " + str(tool_args))
                 # Execute tool call
                 result = await self.session.call_tool(tool_name, tool_args)
-                #print("\n[DEBUG] Tool result: " + str(result.content))   
-                print("\nTABULAR RESPONSE")
-                data = json.loads(result.content[0].text)
-                if "pods" in data:
-                    table_data = [[p["pod_name"], p["status"], p["cpu_request"], p["memory_request"]] for p in data["pods"]]
-                    print(tabulate(table_data, headers=["Pod Name", "Status", "CPU Request", "Memory Request"], tablefmt="grid"))
-                elif "services" in data:
-                    table_data = [[s["service_name"], s["status"], s["cluster_ip"], s["ports"], s["node_port"], s["selector"]] for s in data["services"]]
-                    print(tabulate(table_data, headers=["Service Name", "Status", "Cluster IP", "Ports", "Node Port", "Selector"], tablefmt="grid")) 
-                elif "error" in data:
-                    print(data["error"])
-                else:
-                    print(data["message"])               
+                #print("\n[DEBUG] Tool result: " + str(result.content))
+                
+                # Store the raw result for Claude to format
+                raw_result = result.content[0].text
+                
                 final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
                 
                 assistant_message_content.append(content)
@@ -131,7 +126,7 @@ class MCPClient:
                         {
                             "type": "tool_result",
                             "tool_use_id": content.id,
-                            "content": result.content
+                            "content": raw_result + "\n\nCRITICAL INSTRUCTION: Parse this JSON and ONLY output a markdown table. DO NOT include ANY text before or after the table. NO explanations, NO descriptions, NO introductions, NO conclusions.\n\nFor pods data, use EXACTLY these column headers:\n| Pod Name | Status | CPU Request | Memory Request |\n\nFor services data, use EXACTLY these column headers:\n| Service Name | Status | Cluster IP | Ports | Node Port | Selector |\n\nYour entire response must be ONLY the markdown table and nothing else."
                         }
                     ]
                 })
@@ -140,6 +135,7 @@ class MCPClient:
                 response = self.anthropic.messages.create(
                     model="claude-3-5-sonnet-20241022",
                     max_tokens=1000,
+                    system="Format Kubernetes resource data as clean markdown tables only. No explanations or text outside the table.",
                     messages=messages,
                     tools=available_tools
                 )
