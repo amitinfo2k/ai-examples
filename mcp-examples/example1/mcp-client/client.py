@@ -5,7 +5,6 @@ from contextlib import AsyncExitStack
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.client.http import http_client
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -26,11 +25,7 @@ class MCPClient:
         Args:
             server_path_or_url: Path to the server script (.py or .js) or HTTP URL
         """
-        # Check if it's an HTTP URL
-        if server_path_or_url.startswith("http://") or server_path_or_url.startswith("https://"):
-            await self.connect_to_http_server(server_path_or_url)
-        else:
-            await self.connect_to_stdio_server(server_path_or_url)
+        await self.connect_to_stdio_server(server_path_or_url)
             
         # List available tools
         response = await self.session.list_tools()
@@ -61,21 +56,8 @@ class MCPClient:
         
         # Initialize the session
         await self.session.initialize()
-        
-    async def connect_to_http_server(self, server_url: str):
-        """Connect to an MCP server via HTTP
-
-        Args:
-            server_url: URL of the HTTP MCP server (e.g., http://localhost:8000)
-        """
-        from mcp.client.http import http_client
-        
-        http_transport = await self.exit_stack.enter_async_context(http_client(server_url))
-        self.session = await self.exit_stack.enter_async_context(ClientSession(http_transport))
-        
-        # Initialize the session
-        await self.session.initialize()
-
+      
+    
     async def process_query(self, query: str) -> str:
         """Process a query using Claude and available tools"""
         messages = [
