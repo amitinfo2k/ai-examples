@@ -1,0 +1,45 @@
+{
+    "name": "K8s Info Agent",
+    "description": "Helps get the k8s pods details like list of pods, describe of a pod, logs of a pod, etc.",
+    "url": "http://localhost:10104/",
+    "provider": null,
+    "version": "1.0.0",
+    "documentationUrl": null,
+    "authentication": {
+        "credentials": null,
+        "schemes": [
+            "public"
+        ]
+    },
+    "capabilities": {
+        "streaming": "True",
+        "pushNotifications": "True",
+        "stateTransitionHistory": "False"
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain"
+    ],
+    "skills": [
+        {
+            "id": "k8s_info",
+            "name": "K8s Info",
+            "description": "Helps get the k8s pods details like list of pods, describe of a pod, logs of a pod, etc.",
+            "tags": [
+                "k8s_info"
+            ],
+            "examples": [
+                "Get the k8s pods details",
+                "Describe a pod",
+                "Get the logs of a pod",
+                "Get the events of a pod"
+            ],
+            "inputModes": null,
+            "outputModes": null
+        }
+    ]
+}

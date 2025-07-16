@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: crashloop-pod
+  labels:
+    app: crashloop-test
+spec:
+  containers:
+  - name: crashloop-container
+    image: busybox:1.36
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        echo "Starting container..."
+        echo "Simulating application error..."
+        echo "ERROR: Could not connect to database at db-service:3306"
+        echo "ERROR: Connection timeout after 30 seconds"
+        echo "ERROR: Application failed to start due to missing configuration"
+        exit 1
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "100m"
+      limits:
+        memory: "128Mi"
+        cpu: "200m"
+  restartPolicy: Always

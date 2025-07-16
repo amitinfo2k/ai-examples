@@ -1,0 +1,25 @@
+[project]
+name = "k8s-a2a-mc"
+version = "0.1.0"
+description = "Automated Kubernetes Pod CrashLoopBackOff Diagnosis using A2A and MCP"
+readme = "README.md"
+requires-python = ">=3.10.12"
+dependencies = [
+    "a2a-sdk>=0.2.12",
+    "mcp>=1.11.0",
+    "fastmcp>=2.10.5",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.23.2",
+    "pydantic>=2.4.2",
+    "google-generativeai>=0.3.0",
+    "kubernetes>=28.1.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.7.0",
+    "isort>=5.12.0",
+    "mypy>=1.5.1",
+]

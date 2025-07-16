@@ -1,0 +1,42 @@
+{
+    "name": "Log Analysis Agent",
+    "description": "Helps analyse the pods logs in troubleshooting the service",
+    "url": "http://localhost:10104/",
+    "provider": null,
+    "version": "1.0.0",
+    "documentationUrl": null,
+    "authentication": {
+        "credentials": null,
+        "schemes": [
+            "public"
+        ]
+    },
+    "capabilities": {
+        "streaming": "True",
+        "pushNotifications": "True",
+        "stateTransitionHistory": "False"
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain"
+    ],
+    "skills": [
+        {
+            "id": "log_analysis",
+            "name": "Log Analysis",
+            "description": "Helps analyse the pods logs in troubleshooting the service",
+            "tags": [
+                "log_analysis"
+            ],
+            "examples": [
+                "Analyze the pods logs in troubleshooting the service"
+            ],
+            "inputModes": null,
+            "outputModes": null
+        }
+    ]
+}
