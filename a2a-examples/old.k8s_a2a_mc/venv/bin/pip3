@@ -1,8 +1,0 @@
-#!/home/amit.wankhede@GSLAB.COM/Work/PoC/k8s-mcp/MCP_Example/ai-examples/a2a-examples/k8s_a2a_mc/venv/bin/python3
-# -*- coding: utf-8 -*-
-import re
-import sys
-from pip._internal.cli.main import main
-if __name__ == '__main__':
-    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
-    sys.exit(main())
