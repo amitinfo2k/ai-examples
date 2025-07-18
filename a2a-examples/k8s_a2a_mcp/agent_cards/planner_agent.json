@@ -1,6 +1,6 @@
 {
     "name": "Langraph Planner Agent",
-    "description": "Helps breakdown a request in to actionable tasks",
+    "description": "Intelligent task planner that breaks down complex Kubernetes debugging requests into actionable, sequential tasks for comprehensive cluster analysis and problem resolution.",
     "url": "http://localhost:10102/",
     "provider": null,
     "version": "1.0.0",
@@ -27,13 +27,24 @@
     "skills": [
         {
             "id": "planner",
-            "name": "Task Planner",
-            "description": "Helps breakdown a request in to actionable tasks",
+            "name": "Kubernetes Task Planner",
+            "description": "Creates comprehensive debugging plans by analyzing user requests and breaking them down into logical, sequential tasks that leverage the full range of available Kubernetes APIs.",
             "tags": [
-                "planner"
+                "planner",
+                "kubernetes",
+                "debugging",
+                "task_analysis",
+                "workflow_planning"
             ],
             "examples": [
-                "Plan troubleshoting for Pod with name in the namesapce of  cluster "
+                "Plan comprehensive troubleshooting for a pod stuck in CrashLoopBackOff",
+                "Create a debugging plan for investigating cluster-wide performance issues",
+                "Plan storage troubleshooting for PVCs that are stuck in Pending state",
+                "Create a plan for diagnosing network connectivity issues between services",
+                "Plan deployment troubleshooting for failed rollouts",
+                "Create a plan for investigating node resource exhaustion",
+                "Plan ingress troubleshooting for external access issues",
+                "Create a comprehensive cluster health assessment plan"
             ],
             "inputModes": null,
             "outputModes": null

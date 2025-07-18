@@ -365,6 +365,618 @@ def serve(host, port, transport):  # noqa: PLR0915
             return {"usage": result.stdout}
         except subprocess.CalledProcessError as e:
             return {"error": e.stderr}
+
+    # Node-related APIs
+    @mcp.tool()
+    def get_node_info(node_name: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a Kubernetes node.
+        
+        Args:
+            node_name: The name of the node
+            
+        Returns:
+            Detailed node information including capacity, usage, and status
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "node", node_name, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"node_info": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def list_nodes() -> Dict[str, Any]:
+        """
+        List all nodes in the cluster with their status.
+        
+        Returns:
+            List of all nodes in the cluster
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "nodes", "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"nodes": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def get_node_metrics(node_name: str) -> Dict[str, Any]:
+        """
+        Get resource metrics for a specific node.
+        
+        Args:
+            node_name: The name of the node
+            
+        Returns:
+            Node resource metrics (CPU, memory, disk usage)
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "top", "node", node_name],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"metrics": result.stdout}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+
+    # Deployment-related APIs
+    @mcp.tool()
+    def get_deployment_info(namespace: str, deployment_name: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a Kubernetes deployment.
+        
+        Args:
+            namespace: The namespace of the deployment
+            deployment_name: The name of the deployment
+            
+        Returns:
+            Detailed deployment information
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "deployment", deployment_name, "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"deployment_info": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def list_deployments(namespace: str) -> Dict[str, Any]:
+        """
+        List all deployments in a namespace.
+        
+        Args:
+            namespace: The namespace to list deployments from
+            
+        Returns:
+            List of deployments in the namespace
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "deployments", "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"deployments": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    # Service-related APIs
+    @mcp.tool()
+    def get_service_info(namespace: str, service_name: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a Kubernetes service.
+        
+        Args:
+            namespace: The namespace of the service
+            service_name: The name of the service
+            
+        Returns:
+            Detailed service information
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "service", service_name, "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"service_info": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def list_services(namespace: str) -> Dict[str, Any]:
+        """
+        List all services in a namespace.
+        
+        Args:
+            namespace: The namespace to list services from
+            
+        Returns:
+            List of services in the namespace
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "services", "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"services": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    # Ingress-related APIs
+    @mcp.tool()
+    def get_ingress_info(namespace: str, ingress_name: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a Kubernetes ingress.
+        
+        Args:
+            namespace: The namespace of the ingress
+            ingress_name: The name of the ingress
+            
+        Returns:
+            Detailed ingress information
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "ingress", ingress_name, "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"ingress_info": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def list_ingresses(namespace: str) -> Dict[str, Any]:
+        """
+        List all ingresses in a namespace.
+        
+        Args:
+            namespace: The namespace to list ingresses from
+            
+        Returns:
+            List of ingresses in the namespace
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "ingresses", "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"ingresses": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    # ConfigMap-related APIs
+    @mcp.tool()
+    def get_configmap_info(namespace: str, configmap_name: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a Kubernetes configmap.
+        
+        Args:
+            namespace: The namespace of the configmap
+            configmap_name: The name of the configmap
+            
+        Returns:
+            Detailed configmap information
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "configmap", configmap_name, "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"configmap_info": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def list_configmaps(namespace: str) -> Dict[str, Any]:
+        """
+        List all configmaps in a namespace.
+        
+        Args:
+            namespace: The namespace to list configmaps from
+            
+        Returns:
+            List of configmaps in the namespace
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "configmaps", "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"configmaps": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    # Secret-related APIs
+    @mcp.tool()
+    def get_secret_info(namespace: str, secret_name: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a Kubernetes secret.
+        
+        Args:
+            namespace: The namespace of the secret
+            secret_name: The name of the secret
+            
+        Returns:
+            Detailed secret information (without revealing actual secret values)
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "secret", secret_name, "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"secret_info": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def list_secrets(namespace: str) -> Dict[str, Any]:
+        """
+        List all secrets in a namespace.
+        
+        Args:
+            namespace: The namespace to list secrets from
+            
+        Returns:
+            List of secrets in the namespace
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "secrets", "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"secrets": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    # PersistentVolumeClaim-related APIs
+    @mcp.tool()
+    def get_persistent_volume_claim_info(namespace: str, pvc_name: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a Kubernetes persistent volume claim.
+        
+        Args:
+            namespace: The namespace of the PVC
+            pvc_name: The name of the PVC
+            
+        Returns:
+            Detailed PVC information
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "pvc", pvc_name, "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"pvc_info": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def list_persistent_volume_claims(namespace: str) -> Dict[str, Any]:
+        """
+        List all persistent volume claims in a namespace.
+        
+        Args:
+            namespace: The namespace to list PVCs from
+            
+        Returns:
+            List of PVCs in the namespace
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "pvc", "-n", namespace, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"pvcs": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    # PersistentVolume-related APIs
+    @mcp.tool()
+    def get_persistent_volume_info(pv_name: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a Kubernetes persistent volume.
+        
+        Args:
+            pv_name: The name of the persistent volume
+            
+        Returns:
+            Detailed PV information
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "pv", pv_name, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"pv_info": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def list_persistent_volumes() -> Dict[str, Any]:
+        """
+        List all persistent volumes in the cluster.
+        
+        Returns:
+            List of all persistent volumes
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "pv", "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"pvs": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    # Namespace-related APIs
+    @mcp.tool()
+    def get_namespace_info(namespace_name: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a Kubernetes namespace.
+        
+        Args:
+            namespace_name: The name of the namespace
+            
+        Returns:
+            Detailed namespace information
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "namespace", namespace_name, "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"namespace_info": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def list_namespaces() -> Dict[str, Any]:
+        """
+        List all namespaces in the cluster.
+        
+        Returns:
+            List of all namespaces
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "namespaces", "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"namespaces": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    # Cluster-wide APIs
+    @mcp.tool()
+    def list_events(namespace: Optional[str] = None, field_selector: Optional[str] = None) -> Dict[str, Any]:
+        """
+        List events in the cluster with optional filtering.
+        
+        Args:
+            namespace: Optional namespace to filter events
+            field_selector: Optional field selector for filtering events
+            
+        Returns:
+            List of events matching the criteria
+        """
+        try:
+            cmd = ["kubectl", "get", "events", "-o", "json"]
+            if namespace:
+                cmd.extend(["-n", namespace])
+            if field_selector:
+                cmd.extend(["--field-selector", field_selector])
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"events": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def get_cluster_info() -> Dict[str, Any]:
+        """
+        Get high-level information about the Kubernetes cluster.
+        
+        Returns:
+            Cluster information including version and API server details
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "cluster-info", "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"cluster_info": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def get_cluster_component_status() -> Dict[str, Any]:
+        """
+        Get the health status of core Kubernetes components.
+        
+        Returns:
+            Status of core components like scheduler, controller-manager, etcd
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "componentstatuses", "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"component_status": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def get_api_resources() -> Dict[str, Any]:
+        """
+        List all available API resources in the cluster.
+        
+        Returns:
+            List of all available API resources and their capabilities
+        """
+        try:
+            result = subprocess.run(
+                ["kubectl", "api-resources", "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"api_resources": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    @mcp.tool()
+    def get_network_policies(namespace: Optional[str] = None) -> Dict[str, Any]:
+        """
+        List network policies in the cluster or a specific namespace.
+        
+        Args:
+            namespace: Optional namespace to filter network policies
+            
+        Returns:
+            List of network policies
+        """
+        try:
+            cmd = ["kubectl", "get", "networkpolicies", "-o", "json"]
+            if namespace:
+                cmd.extend(["-n", namespace])
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"network_policies": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
+
+    # Enhanced pod metrics API
+    @mcp.tool()
+    def get_pod_metrics(namespace: str, pod_name: str, container_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get resource metrics for a specific pod and optionally a specific container.
+        
+        Args:
+            namespace: The namespace of the pod
+            pod_name: The name of the pod
+            container_name: Optional name of the container in the pod
+            
+        Returns:
+            Pod resource metrics (CPU, memory usage)
+        """
+        try:
+            cmd = ["kubectl", "top", "pod", pod_name, "-n", namespace]
+            if container_name:
+                cmd.extend(["--containers"])
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"metrics": result.stdout}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
       
     
     logger.info(

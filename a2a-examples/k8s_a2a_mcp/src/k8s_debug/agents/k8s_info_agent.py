@@ -146,5 +146,5 @@ class K8sInfoAgent(BaseAgent):
                 'response_type': 'text',
                 'is_task_complete': True,
                 'require_user_input': False,
-                'content': 'Could not complete booking / task. Please try again.',
+                'content': 'Could not complete Kubernetes debugging task. Please try again.',
             }
