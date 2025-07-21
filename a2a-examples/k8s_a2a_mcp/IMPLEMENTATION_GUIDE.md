@@ -11,7 +11,7 @@ You can also run each service individually in separate terminals:
    ```bash
    run src/k8s_debug/agents/ --agent-card agent_cards/k8s_info_agent.json --port 10103
    ```
-
+# Following not required
 3. Start the Log Analysis Agent:
    ```bash
    run src/k8s_debug/agents/ --agent-card agent_cards/log_analysis_agent.json --port 10104

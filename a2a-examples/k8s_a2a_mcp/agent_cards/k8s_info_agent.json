@@ -1,6 +1,6 @@
 {
     "name": "K8s Info Agent",
-    "description": "Helps get the k8s pods details like list of pods, describe of a pod, logs of a pod, etc.",
+    "description": "Helps query k8s cluster the k8s details like list of namespaces, list of nodes, list of pods, describe of a pod, logs of a pod, events of pod , log for the pod etc.",
     "url": "http://localhost:10103/",
     "provider": null,
     "version": "1.0.0",
@@ -28,15 +28,18 @@
         {
             "id": "k8s_info",
             "name": "K8s Info",
-            "description": "Helps get the k8s pods details like list of pods, describe of a pod, logs of a pod, etc.",
+            "description": "Helps get the k8s details like list of namespaces, list of nodes, list of pods, describe of a pod, logs of a pod, events of pod , log for the pod etc.",
             "tags": [
                 "k8s_info"
             ],
             "examples": [
-                "Get the k8s pods details",
+                "Get the list of namespaces",
+                "Get the list of nodes",
+                "Get the list of pods",
                 "Describe a pod",
                 "Get the logs of a pod",
-                "Get the events of a pod"
+                "Get the events of a pod",
+                "Get the resource usage of a pod"
             ],
             "inputModes": null,
             "outputModes": null

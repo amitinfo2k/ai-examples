@@ -1,0 +1,44 @@
+{
+    "name": "K8s Debug Agent",
+    "description": "Helps get the required information by attaching a sidecar container e.g. tcpdump , dns tools etc. ",
+    "url": "http://localhost:10103/",
+    "provider": null,
+    "version": "1.0.0",
+    "documentationUrl": null,
+    "authentication": {
+        "credentials": null,
+        "schemes": [
+            "public"
+        ]
+    },
+    "capabilities": {
+        "streaming": "True",
+        "pushNotifications": "True",
+        "stateTransitionHistory": "False"
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain"
+    ],
+    "skills": [
+        {
+            "id": "k8s_diagnostic",
+            "name": "K8s Diagnostic",
+            "description": "Helps get the required information by attaching a sidecar container e.g. tcpdump , dns tools etc.",
+            "tags": [
+                "k8s_diagnostic"
+            ],
+            "examples": [
+                "Collecting tcpdump from the container",
+                "Run diagnostic commands in the sidecar container",
+                "Download the diagnostic data from the sidecar container"
+            ],
+            "inputModes": null,
+            "outputModes": null
+        }
+    ]
+}

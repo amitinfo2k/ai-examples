@@ -132,7 +132,7 @@ class K8sInfoAgent(BaseAgent):
                 data = json.loads(data)
                 return_type = 'data'
             except Exception as json_e:
-                logger.error(f'Json conversion error {json_e}')
+                logger.error(f'Json conversion error {json_e} - {data}')
                 return_type = 'text'
             return {
                 'response_type': return_type,

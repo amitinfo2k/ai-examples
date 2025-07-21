@@ -32,7 +32,7 @@ class OrchestratorAgent(BaseAgent):
         )
         self.graph = None
         self.results = []
-        self.travel_context = {}
+        self.troubleshooting_context = {}
         self.query_history = []
         self.context_id = None
 
@@ -41,7 +41,7 @@ class OrchestratorAgent(BaseAgent):
         response = client.models.generate_content(
             model='gemini-2.0-flash',
             contents=prompts.SUMMARY_COT_INSTRUCTIONS.replace(
-                '{travel_data}', str(self.results)
+                '{troubleshooting_data}', str(self.results)
             ),
             config={'temperature': 0.0},
         )
@@ -102,7 +102,7 @@ class OrchestratorAgent(BaseAgent):
     def clear_state(self):
         self.graph = None
         self.results.clear()
-        self.travel_context.clear()
+        self.troubleshooting_context.clear()
         self.query_history.clear()
 
     async def stream(

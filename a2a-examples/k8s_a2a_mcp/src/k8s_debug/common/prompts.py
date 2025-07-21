@@ -19,11 +19,11 @@ DECISION TREE:
 1. Pod
     - If unknown, ask for the pod.
     - If known, proceed to step 2.
-2. Events
-    - If unknown, ask for events.
+2. Namespace
+    - If unknown, ask for namespace.
     - If known, proceed to step 3.
-3. Description
-    - If unknown, ask for description.
+3. Node
+    - If unknown, ask for node.
     - If known, proceed to step 4.
 
 CHAIN-OF-THOUGHT PROCESS:
