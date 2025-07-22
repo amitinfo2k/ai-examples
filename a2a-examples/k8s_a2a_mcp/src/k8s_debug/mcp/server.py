@@ -147,6 +147,7 @@ def serve(host, port, transport):  # noqa: PLR0915
             The json representing the agent card deemed most relevant
             to the input query based on embedding similarity.
         """
+        logger.info(f'Finding agent for query {query}')
         query_embedding = genai.embed_content(
             model=MODEL, content=query, task_type='retrieval_query'
         )
@@ -188,6 +189,7 @@ def serve(host, port, transport):  # noqa: PLR0915
         Returns:
             A json / dictionary
         """
+        logger.info(f'Starting read resource resource://agent_cards/{card_name}')
         resources = {}
         logger.info(
             f'Starting read resource resource://agent_cards/{card_name}'
@@ -213,6 +215,7 @@ def serve(host, port, transport):  # noqa: PLR0915
         Returns:
             The pod description in YAML format
         """
+        logger.info(f'Getting pod description for pod {pod_name} in namespace {namespace}')
         try:
             result = subprocess.run(
                 ["kubectl", "get", "pod", pod_name, "-n", namespace, "-o", "yaml"],
@@ -237,6 +240,7 @@ def serve(host, port, transport):  # noqa: PLR0915
         Returns:
             The pod events
         """
+        logger.info(f'Getting pod events for pod {pod_name} in namespace {namespace}')
         try:
             result = subprocess.run(
                 [
@@ -276,6 +280,7 @@ def serve(host, port, transport):  # noqa: PLR0915
         Returns:
             The pod logs
         """
+        logger.info(f'Getting pod logs for pod {pod_name} in namespace {namespace}')
         cmd = ["kubectl", "logs", pod_name, "-n", namespace]
         if container_name:
             cmd.extend(["-c", container_name])
@@ -293,18 +298,27 @@ def serve(host, port, transport):  # noqa: PLR0915
 
 
     @mcp.tool()
-    def list_pods(namespace: str) -> Dict[str, Any]:
+    def list_pods(namespace: Optional[str] = None) -> Dict[str, Any]:
         """
         List all pods in a namespace.
         
         Args:
-            namespace: The namespace to list pods from
+            namespace: The namespace to list pods from. If None, list all pods in all namespaces.
             
         Returns:
             List of pods in the namespace
         """
+        logger.info(f'Listing pods in namespace {namespace}')
         try:
-            result = subprocess.run(
+            if namespace is None:
+               result = subprocess.run(
+                ["kubectl", "get", "pods", "-A", "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            else:
+                result = subprocess.run(
                 ["kubectl", "get", "pods", "-n", namespace, "-o", "json"],
                 capture_output=True,
                 text=True,
@@ -316,6 +330,27 @@ def serve(host, port, transport):  # noqa: PLR0915
         except json.JSONDecodeError:
             return {"error": "Failed to parse JSON output from kubectl"}
 
+    @mcp.tool()
+    def list_namespaces() -> Dict[str, Any]:
+        """
+        List all namespaces.
+        
+        Returns:
+            List of namespaces
+        """
+        logger.info(f'Listing namespaces')
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "namespaces", "-o", "json"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return {"namespaces": json.loads(result.stdout)}
+        except subprocess.CalledProcessError as e:
+            return {"error": e.stderr}
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON output from kubectl"}
 
     @mcp.tool()
     def describe_node(node_name: str) -> Dict[str, Any]:
@@ -328,6 +363,7 @@ def serve(host, port, transport):  # noqa: PLR0915
         Returns:
             The node description
         """
+        logger.info(f'Describing node {node_name}')
         try:
             result = subprocess.run(
                 ["kubectl", "describe", "node", node_name],
@@ -351,6 +387,7 @@ def serve(host, port, transport):  # noqa: PLR0915
         Returns:
             Resource usage information
         """
+        logger.info(f'Getting resource usage for pod {pod_name} in namespace {namespace}')
         cmd = ["kubectl", "top", "pods", "-n", namespace]
         if pod_name:
             cmd.append(pod_name)

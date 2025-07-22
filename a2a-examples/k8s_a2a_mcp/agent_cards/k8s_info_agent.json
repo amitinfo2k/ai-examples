@@ -1,6 +1,6 @@
 {
     "name": "K8s Info Agent",
-    "description": "Comprehensive Kubernetes debugging assistant that can access cluster resources, monitor metrics, analyze logs, and diagnose issues across pods, nodes, deployments, services, storage, and cluster components.",
+    "description": "Helps query k8s cluster the k8s details like list of namespaces, list of nodes, list of pods, describe of a pod, logs of a pod, events of pod , log for the pod etc.",
     "url": "http://localhost:10103/",
     "provider": null,
     "version": "1.0.0",
@@ -27,8 +27,8 @@
     "skills": [
         {
             "id": "k8s_info",
-            "name": "Kubernetes Debugging",
-            "description": "Comprehensive Kubernetes debugging capabilities including pod analysis, node monitoring, deployment troubleshooting, service diagnostics, storage investigation, and cluster-wide health checks.",
+            "name": "K8s Info",
+            "description": "Helps get the k8s details like list of namespaces, list of nodes, list of pods, describe of a pod, logs of a pod, events of pod , log for the pod etc.",
             "tags": [
                 "kubernetes",
                 "debugging",
@@ -37,14 +37,13 @@
                 "cluster_analysis"
             ],
             "examples": [
-                "Debug a pod that's stuck in CrashLoopBackOff",
-                "Investigate high CPU usage on worker nodes",
-                "Troubleshoot a deployment that's not scaling properly",
-                "Diagnose network connectivity issues between services",
-                "Check storage capacity and PVC status",
-                "Analyze cluster-wide events and component health",
-                "Monitor resource usage across the cluster",
-                "Investigate ingress routing problems"
+                "Get the list of namespaces",
+                "Get the list of nodes",
+                "Get the list of pods",
+                "Describe a pod",
+                "Get the logs of a pod",
+                "Get the events of a pod",
+                "Get the resource usage of a pod"
             ],
             "inputModes": null,
             "outputModes": null
