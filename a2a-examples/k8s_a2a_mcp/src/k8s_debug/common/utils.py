@@ -49,3 +49,12 @@ def get_mcp_server_config() -> ServerConfig:
         transport='sse',
         url='http://localhost:10100/sse',
     )
+
+def get_mcp_server_diag_config() -> ServerConfig:
+    """Get the MCP server configuration."""
+    return ServerConfig(
+        host='localhost',
+        port=10101,
+        transport='sse',
+        url='http://localhost:10101/sse',
+    )
