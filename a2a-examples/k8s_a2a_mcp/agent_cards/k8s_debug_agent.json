@@ -1,7 +1,7 @@
 {
     "name": "K8s Debug Agent",
     "description": "Helps get the required information by attaching a sidecar container e.g. tcpdump , dns tools etc. ",
-    "url": "http://localhost:10103/",
+    "url": "http://localhost:10104/",
     "provider": null,
     "version": "1.0.0",
     "documentationUrl": null,
