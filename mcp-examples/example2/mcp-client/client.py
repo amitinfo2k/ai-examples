@@ -1,10 +1,12 @@
 import asyncio
 import json
+import sys
 from typing import Optional
 from contextlib import AsyncExitStack
 
-from mcp import ClientSession
+from mcp import ClientSession, StdioServerParameters
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.stdio import stdio_client
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -19,28 +21,60 @@ class MCPClient:
         self.exit_stack = AsyncExitStack()
         self.anthropic = Anthropic()
     # methods will go here
-    async def connect_to_server(self, server_url: str):
-        """Connect to an MCP server via streamable HTTP
+    async def connect_to_server(self, server_path_or_url: str):
+        """Connect to an MCP server either via stdio or HTTP
 
         Args:
-            server_url: URL of the HTTP MCP server (e.g., http://localhost:8000)
+            server_path_or_url: Path to the server script (.py or .js), HTTP URL, or stdio command
         """
-        # Ensure the URL has the /mcp path
-        if '/mcp' not in server_url:
-            if server_url.endswith('/'):
-                server_url = server_url + 'mcp'
-            else:
-                server_url = server_url + '/mcp'
-        print(f"Connecting to server at: {server_url}")
-        # Connect to the server using streamable HTTP
-        await self.connect_to_http_server(server_url)
+        # Check if it's a URL (starts with http:// or https://)
+        if server_path_or_url.startswith(('http://', 'https://')):
+            await self.connect_to_http_server(server_path_or_url)
+        else:
+            await self.connect_to_stdio_server(server_path_or_url)
             
         # List available tools
         response = await self.session.list_tools()
         tools = response.tools
         print("\nConnected to server with tools:", [tool.name for tool in tools])
             
-    # Removed stdio connection method as we're focusing only on streamable HTTP
+    async def connect_to_stdio_server(self, server_command: str):
+        """Connect to an MCP server via stdio
+
+        Args:
+            server_command: Command to run the server (e.g., "uv run k8s-a2a-mcp --run mcp-server --transport stdio")
+        """
+        # Split the command into parts
+        command_parts = server_command.split()
+        command = command_parts[0]
+        args = command_parts[1:] if len(command_parts) > 1 else []
+        
+        print(f"[DEBUG] Running stdio server with command: {command} {args}")
+        
+        # Load environment variables from .env file if it exists
+        import os
+        env_vars = os.environ.copy()
+        
+        # Try to load .env file if it exists in current directory
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            env_vars = os.environ.copy()
+        except ImportError:
+            pass
+        
+        server_params = StdioServerParameters(
+            command=command,
+            args=args,
+            env=env_vars
+        )
+
+        stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
+        self.stdio, self.write = stdio_transport
+        self.session = await self.exit_stack.enter_async_context(ClientSession(self.stdio, self.write))
+        
+        # Initialize the session
+        await self.session.initialize()
     
     async def connect_to_http_server(self, server_url: str):
         """Connect to an MCP server via HTTP using streamable HTTP client
@@ -86,7 +120,10 @@ class MCPClient:
         response = self.anthropic.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=1000,
-            system="Format Kubernetes resource data as clean markdown tables only. No explanations or text outside the table.",
+            system="""You are a helpful Kubernetes assistant. When users provide pod names and namespaces, make sure to:
+1. Use the correct parameter names (pod_name, namespace, container_name)
+2. If a user mentions a namespace after a pod name, use it as the namespace parameter
+3. Format Kubernetes resource data as clean markdown tables only. No explanations or text outside the table.""",
             messages=messages,
             tools=available_tools
         )
@@ -102,45 +139,59 @@ class MCPClient:
                 final_text.append(content.text)
                 assistant_message_content.append(content)
             elif content.type == 'tool_use':
-                tool_name = content.name
-                tool_args = content.input
-                #print("\n[DEBUG] Tool name: " + tool_name)
-                #print("\n[DEBUG] Tool args: " + str(tool_args))
-                # Execute tool call
-                result = await self.session.call_tool(tool_name, tool_args)
-                #print("\n[DEBUG] Tool result: " + str(result.content))
-                
-                # Store the raw result for Claude to format
-                raw_result = result.content[0].text
-                
-                final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
-                
-                assistant_message_content.append(content)
-                messages.append({
-                    "role": "assistant",
-                    "content": assistant_message_content
-                })
-                messages.append({
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": content.id,
-                            "content": raw_result + "\n\nCRITICAL INSTRUCTION: Parse this JSON and ONLY output a markdown table. DO NOT include ANY text before or after the table. NO explanations, NO descriptions, NO introductions, NO conclusions.\n\nFor pods data, use EXACTLY these column headers:\n| Pod Name | Status | CPU Request | Memory Request |\n\nFor services data, use EXACTLY these column headers:\n| Service Name | Status | Cluster IP | Ports | Node Port | Selector |\n\nYour entire response must be ONLY the markdown table and nothing else."
-                        }
-                    ]
-                })
+                try:
+                    tool_name = content.name
+                    tool_args = content.input
+                    #print("\n[DEBUG] Tool name: " + tool_name)
+                    #print("\n[DEBUG] Tool args: " + str(tool_args))
+                    # Execute tool call
+                    result = await self.session.call_tool(tool_name, tool_args)
+                    #print("\n[DEBUG] Tool result: " + str(result.content))
+                    
+                    # Store the raw result for Claude to format
+                    if result.content and len(result.content) > 0:
+                        raw_result = result.content[0].text
+                    else:
+                        raw_result = "No content returned from tool"
+                    
+                    final_text.append(f"[Calling tool {tool_name} with args {tool_args}]")
+                    
+                    assistant_message_content.append(content)
+                    messages.append({
+                        "role": "assistant",
+                        "content": assistant_message_content
+                    })
+                    messages.append({
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": content.id,
+                                "content": raw_result + "\n\nCRITICAL INSTRUCTION: Parse this JSON and ONLY output a markdown table. DO NOT include ANY text before or after the table. NO explanations, NO descriptions, NO introductions, NO conclusions.\n\nFor pods data, use EXACTLY these column headers:\n| Pod Name | Status | CPU Request | Memory Request |\n\nFor services data, use EXACTLY these column headers:\n| Service Name | Status | Cluster IP | Ports | Node Port | Selector |\n\nYour entire response must be ONLY the markdown table and nothing else."
+                            }
+                        ]
+                    })
 
-                # Get next response from Claude
-                response = self.anthropic.messages.create(
-                    model="claude-3-5-sonnet-20241022",
-                    max_tokens=1000,
-                    system="Format Kubernetes resource data as clean markdown tables only. No explanations or text outside the table.",
-                    messages=messages,
-                    tools=available_tools
-                )
-                #print("\n[DEBUG] Response content:\n" + str(response.content))
-                final_text.append(response.content[0].text)
+                    # Get next response from Claude
+                    response = self.anthropic.messages.create(
+                        model="claude-3-5-sonnet-20241022",
+                        max_tokens=1000,
+                        system="""You are a helpful Kubernetes assistant. When users provide pod names and namespaces, make sure to:
+1. Use the correct parameter names (pod_name, namespace, container_name)
+2. If a user mentions a namespace after a pod name, use it as the namespace parameter
+3. Format Kubernetes resource data as clean markdown tables only. No explanations or text outside the table.""",
+                        messages=messages,
+                        tools=available_tools
+                    )
+                    #print("\n[DEBUG] Response content:\n" + str(response.content))
+                    if response.content and len(response.content) > 0:
+                        final_text.append(response.content[0].text)
+                    else:
+                        final_text.append("No response content received")
+                except Exception as tool_error:
+                    print(f"\n[ERROR] Tool execution failed: {tool_error}")
+                    final_text.append(f"Tool execution failed: {tool_error}")
+                    continue
 
         return "\n".join(final_text)    
 
@@ -161,6 +212,8 @@ class MCPClient:
 
             except Exception as e:
                 print(f"\nError: {str(e)}")
+                import traceback
+                print(f"Full error details: {traceback.format_exc()}")
 
     async def cleanup(self):
         """Clean up resources"""
@@ -168,8 +221,10 @@ class MCPClient:
 
 async def main():
     if len(sys.argv) < 2:
-        print("Usage: python client.py <server_url>")
-        print("Example: python client.py http://localhost:8000")
+        print("Usage: python client.py <server_path_or_url_or_command>")
+        print("Examples:")
+        print("  For stdio transport: python client.py 'uv run k8s-a2a-mcp --run mcp-server --transport stdio'")
+        print("  For HTTP transport: python client.py http://localhost:8000")
         sys.exit(1)
 
     client = MCPClient()

@@ -54,7 +54,7 @@ def get_mcp_server_diag_config() -> ServerConfig:
     """Get the MCP server configuration."""
     return ServerConfig(
         host='localhost',
-        port=10101,
-        transport='sse',
-        url='http://localhost:10101/sse',
+        port=8000,
+        transport='streamable-http',
+        url='http://localhost:8000/diagnostic',
     )

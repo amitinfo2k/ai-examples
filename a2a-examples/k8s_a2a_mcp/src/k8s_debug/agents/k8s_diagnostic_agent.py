@@ -23,42 +23,59 @@ class K8sDiagnosticAgent(BaseAgent):
     """K8s Diagnostic Agent backed by ADK."""
 
     def __init__(self, agent_name: str, description: str, instructions: str):
-        init_api_key()
+        logger.info(f'Initializing K8sDiagnosticAgent with name: {agent_name}')
+        try:
+            init_api_key()
+            logger.info('API key initialized successfully')
 
-        super().__init__(
-            agent_name=agent_name,
-            description=description,
-            content_types=['text', 'text/plain'],
-        )
+            super().__init__(
+                agent_name=agent_name,
+                description=description,
+                content_types=['text', 'text/plain'],
+            )
 
-        logger.info(f'Init {self.agent_name}')
+            logger.info(f'Successfully initialized {self.agent_name}')
 
-        self.instructions = instructions
-        self.agent = None
+            self.instructions = instructions
+            self.agent = None
+            logger.info(f'K8sDiagnosticAgent initialization complete for {self.agent_name}')
+        except Exception as e:
+            logger.error(f'Error initializing K8sDiagnosticAgent: {e}')
+            raise
 
     async def init_agent(self):
         logger.info(f'Initializing {self.agent_name} metadata')
-        config = get_mcp_server_diag_config()
-        logger.info(f'MCP Server url={config.url}')
-        tools = await MCPToolset(
-            connection_params=SseServerParams(url=config.url)
-        ).get_tools()
+        try:
+            config = get_mcp_server_config()
+            logger.info(f'MCP Server url={config.url}')
+            
+            # Try to connect to MCP server
+            tools = await MCPToolset(
+                connection_params=SseServerParams(url=config.url)
+            ).get_tools()
 
-        for tool in tools:
-            logger.info(f'Loaded tools {tool.name}')
-        generate_content_config = genai_types.GenerateContentConfig(
-            temperature=0.0
-        )
-        self.agent = Agent(
-            name=self.agent_name,
-            instruction=self.instructions,
-            model='gemini-2.0-flash',
-            disallow_transfer_to_parent=True,
-            disallow_transfer_to_peers=True,
-            generate_content_config=generate_content_config,
-            tools=tools,
-        )
-        self.runner = AgentRunner()
+            logger.info(f'Successfully connected to MCP server and loaded {len(tools)} tools')
+            for tool in tools:
+                logger.info(f'Loaded tool: {tool.name}')
+                
+            generate_content_config = genai_types.GenerateContentConfig(
+                temperature=0.0
+            )
+            self.agent = Agent(
+                name=self.agent_name,
+                instruction=self.instructions,
+                model='gemini-2.0-flash',
+                disallow_transfer_to_parent=True,
+                disallow_transfer_to_peers=True,
+                generate_content_config=generate_content_config,
+                tools=tools,
+            )
+            self.runner = AgentRunner()
+            logger.info(f'Successfully initialized agent {self.agent_name}')
+        except Exception as e:
+            logger.error(f'Failed to initialize agent {self.agent_name}: {e}')
+            # Don't re-raise the exception, just log it and leave self.agent as None
+            # The stream method will handle this case
 
     async def invoke(self, query, session_id) -> dict:
         logger.info(f'Running {self.agent_name} for session {session_id}')
@@ -75,21 +92,42 @@ class K8sDiagnosticAgent(BaseAgent):
         if not query:
             raise ValueError('Query cannot be empty')
 
+        # Ensure agent is initialized
         if not self.agent:
+            logger.info(f'Initializing agent {self.agent_name}')
             await self.init_agent()
-        async for chunk in self.runner.run_stream(
-            self.agent, query, context_id
-        ):
-            logger.info(f'Received chunk {chunk}')
-            if isinstance(chunk, dict) and chunk.get('type') == 'final_result':
-                response = chunk['response']
-                yield self.get_agent_response(response)
-            else:
-                yield {
-                    'is_task_complete': False,
-                    'require_user_input': False,
-                    'content': f'{self.agent_name}: Processing Request...',
-                }
+            logger.info(f'Agent {self.agent_name} initialized successfully')
+        
+        if not self.agent:
+            logger.error(f'Failed to initialize agent {self.agent_name}')
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'content': f'Error: Failed to initialize agent {self.agent_name}',
+            }
+            return
+
+        try:
+            async for chunk in self.runner.run_stream(
+                self.agent, query, context_id
+            ):
+                logger.info(f'Received chunk {chunk}')
+                if isinstance(chunk, dict) and chunk.get('type') == 'final_result':
+                    response = chunk['response']
+                    yield self.get_agent_response(response)
+                else:
+                    yield {
+                        'is_task_complete': False,
+                        'require_user_input': False,
+                        'content': f'{self.agent_name}: Processing Request...',
+                    }
+        except Exception as e:
+            logger.error(f'Error in agent stream: {e}')
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'content': f'Error: {str(e)}',
+            }
 
     def format_response(self, chunk):
         patterns = [

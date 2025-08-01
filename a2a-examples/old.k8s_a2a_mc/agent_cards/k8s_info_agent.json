@@ -1,7 +1,7 @@
 {
     "name": "K8s Info Agent",
     "description": "Helps get the k8s pods details like list of pods, describe of a pod, logs of a pod, etc.",
-    "url": "http://localhost:10104/",
+    "url": "http://localhost:10103/",
     "provider": null,
     "version": "1.0.0",
     "documentationUrl": null,

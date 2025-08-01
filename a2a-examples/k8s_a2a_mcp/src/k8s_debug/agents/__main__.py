@@ -24,20 +24,34 @@ logger = logging.getLogger(__name__)
 
 def get_agent(agent_card: AgentCard):
     """Get the agent, given an agent card."""
+    logger.info(f'Getting agent for card name: {agent_card.name}')
     try:
+        if agent_card.name == 'K8s Debug Agent':
+            logger.info('Creating K8sDiagnosticAgent for K8s Debug Agent')
+            return K8sDiagnosticAgent(
+                agent_name='K8sDiagnosticAgent',
+                description='Get k8s diagnostic info',
+                instructions=prompts.K8S_DIAGNOSTIC_INSTRUCTIONS,
+            )
         if agent_card.name == 'K8s Diagnostic Agent':
+            logger.info('Creating K8sDiagnosticAgent for K8s Diagnostic Agent')
             return K8sDiagnosticAgent(
                 agent_name='K8sDiagnosticAgent',
                 description='Get k8s diagnostic info',
                 instructions=prompts.K8S_DIAGNOSTIC_INSTRUCTIONS,
             )
         if agent_card.name == 'K8s Info Agent':
+            logger.info('Creating K8sInfoAgent for K8s Info Agent')
             return K8sInfoAgent(
                 agent_name='K8sInfoAgent',
                 description='Get k8s info',
                 instructions=prompts.K8S_INFO_INSTRUCTIONS,
             )
+        # If no matching agent is found, raise an error
+        logger.error(f'Unknown agent card name: {agent_card.name}')
+        raise ValueError(f"Unknown agent card name: {agent_card.name}")
     except Exception as e:
+        logger.error(f'Error in get_agent: {e}')
         raise e
 
 
@@ -54,8 +68,16 @@ def main(host, port, agent_card):
             data = json.load(file)
         agent_card = AgentCard(**data)
 
+        # Get the agent
+        agent = get_agent(agent_card)
+        logger.info(f'Created agent: {agent}')
+        
+        # Create the agent executor
+        agent_executor = GenericAgentExecutor(agent=agent)
+        logger.info(f'Created agent executor: {agent_executor}')
+        
         request_handler = DefaultRequestHandler(
-            agent_executor=GenericAgentExecutor(agent=get_agent(agent_card)),
+            agent_executor=agent_executor,
             task_store=InMemoryTaskStore(),
             push_sender=None,
         )

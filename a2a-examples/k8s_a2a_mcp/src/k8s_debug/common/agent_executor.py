@@ -26,6 +26,11 @@ class GenericAgentExecutor(AgentExecutor):
     """AgentExecutor used by the tragel agents."""
 
     def __init__(self, agent: BaseAgent):
+        logger.info(f'Initializing GenericAgentExecutor with agent: {agent}')
+        if agent is None:
+            logger.error('Agent is None in GenericAgentExecutor constructor')
+        else:
+            logger.info(f'Agent name: {agent.agent_name}')
         self.agent = agent
 
     async def execute(
@@ -33,6 +38,11 @@ class GenericAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
+        # Add debugging to check if agent is None
+        if self.agent is None:
+            logger.error('Agent is None in GenericAgentExecutor')
+            raise ServerError(error=InvalidParamsError())
+        
         logger.info(f'Executing agent {self.agent.agent_name}')
         error = self._validate_request(context)
         if error:
