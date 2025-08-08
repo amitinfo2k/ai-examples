@@ -2,6 +2,7 @@ from mcp.server.fastmcp import FastMCP
 from kubernetes import client, config
 import json
 import time
+import subprocess
 
 # Initialize the MCP server
 mcp = FastMCP("K8sPodLister")
@@ -195,7 +196,6 @@ def run_tcpdump(pod_name: str, container_name: str = None, namespace: str = "def
         # Execute tcpdump using kubectl exec approach since connect_get_namespaced_pod_exec has WebSocket issues
         try:
             print(f"[DEBUG] Using kubectl exec approach directly")
-            import subprocess
             
             tcpdump_cmd = f"timeout -s INT {duration} tcpdump -i {interface} -w {output_file} {filter_arg}"
             
@@ -290,7 +290,6 @@ def check_tcpdump_status(pod_name: str, container_name: str = None, namespace: s
         
         # Check for running tcpdump processes
         try:
-            import subprocess
             ps_cmd = ['kubectl', 'exec', '-n', namespace, pod_name, '-c', selected_container, '--', '/bin/sh', '-c', 'ps aux | grep tcpdump | grep -v grep']
             result = subprocess.run(ps_cmd, capture_output=True, text=True, timeout=30)
             ps_resp = result.stdout
@@ -302,7 +301,6 @@ def check_tcpdump_status(pod_name: str, container_name: str = None, namespace: s
         
         # Check tcpdump log file
         try:
-            import subprocess
             log_cmd = ['kubectl', 'exec', '-n', namespace, pod_name, '-c', selected_container, '--', '/bin/sh', '-c', 'cat /tmp/tcpdump.log 2>/dev/null || echo "Log file not found"']
             result = subprocess.run(log_cmd, capture_output=True, text=True, timeout=30)
             log_resp = result.stdout
@@ -314,7 +312,6 @@ def check_tcpdump_status(pod_name: str, container_name: str = None, namespace: s
         
         # Check for pcap files
         try:
-            import subprocess
             pcap_cmd = ['kubectl', 'exec', '-n', namespace, pod_name, '-c', selected_container, '--', '/bin/sh', '-c', 'ls -la /tmp/capture-*.pcap 2>/dev/null || echo "No pcap files found"']
             result = subprocess.run(pcap_cmd, capture_output=True, text=True, timeout=30)
             pcap_resp = result.stdout
@@ -340,114 +337,133 @@ def run_dns_tool(pod_name: str, container_name: str = None, namespace: str = "de
         target: DNS name to query (default: kubernetes.default.svc.cluster.local)
         query_type: DNS query type (A, AAAA, MX, etc.) (default: A)
     """
+    print(f"[DEBUG] run_dns_tool called with: pod_name={pod_name}, container_name={container_name}, namespace={namespace}, target={target}, query_type={query_type}")
     try:
         # Verify the pod exists
+        print(f"[DEBUG] Verifying pod '{pod_name}' exists in namespace '{namespace}'")
         try:
             pod = v1.read_namespaced_pod(name=pod_name, namespace=namespace)
+            print(f"[DEBUG] Pod found: {pod.metadata.name}")
         except client.exceptions.ApiException as e:
+            print(f"[DEBUG] Pod verification failed: {e}")
             if e.status == 404:
-                return f"Error: Pod '{pod_name}' not found in namespace '{namespace}'."
+                error_msg = f"Error: Pod '{pod_name}' not found in namespace '{namespace}'."
+                print(f"[DEBUG] Returning error message: {error_msg}")
+                return error_msg
             else:
-                return f"Error accessing pod: {str(e)}"
+                error_msg = f"Error accessing pod: {str(e)}"
+                print(f"[DEBUG] Returning error message: {error_msg}")
+                return error_msg
         
         # Find the container to use
         selected_container = None
         if container_name:
+            print(f"[DEBUG] Looking for container '{container_name}' in pod")
             for container in pod.spec.containers:
+                print(f"[DEBUG] Found container: {container.name}")
                 if container.name == container_name:
                     selected_container = container.name
                     break
             if not selected_container:
-                return f"Error: Container '{container_name}' not found in pod '{pod_name}'."
+                error_msg = f"Error: Container '{container_name}' not found in pod '{pod_name}'."
+                print(f"[DEBUG] Returning error message: {error_msg}")
+                return error_msg
         else:
             # Fallback to first container in the pod
             selected_container = pod.spec.containers[0].name
+            print(f"[DEBUG] Using first container: {selected_container}")
         
-        # Check if DNS tools are available
+        print(f"[DEBUG] Selected container: {selected_container}")
+        
+        # Check if DNS tools are available using kubectl exec
         dns_tools = {
             "dig": False,
             "nslookup": False
         }
         
-        for tool in dns_tools:
-            check_cmd = ['/bin/sh', '-c', f'command -v {tool} || echo "not found"']
-            resp = v1.connect_get_namespaced_pod_exec(
-                name=pod_name,
-                namespace=namespace,
-                container=selected_container,
-                command=check_cmd,
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False
-            )
-            
-            if "not found" not in resp:
-                dns_tools[tool] = True
+        try:
+            for tool in dns_tools:
+                kubectl_check_cmd = [
+                    'kubectl', 'exec', '-n', namespace, pod_name, 
+                    '-c', selected_container, '--', '/bin/sh', '-c', 
+                    f'command -v {tool} || echo "not found"'
+                ]
+                
+                result = subprocess.run(kubectl_check_cmd, capture_output=True, text=True, timeout=30)
+                resp = result.stdout.strip()
+                
+                if "not found" not in resp:
+                    dns_tools[tool] = True
+                    
+        except Exception as check_error:
+            print(f"[DEBUG] DNS tools availability check failed: {check_error}")
+            # If we can't check, assume tools are not available
+            pass
         
+        print(f"[DEBUG] DNS tools availability: {dns_tools}")
         if not any(dns_tools.values()):
-            return f"Error: No DNS tools (dig, nslookup) are available in container '{selected_container}'. Please ensure the diagnostic tools are installed."
+            error_msg = f"Error: No DNS tools (dig, nslookup) are available in container '{selected_container}'. Please ensure the diagnostic tools are installed."
+            print(f"[DEBUG] Returning error message: {error_msg}")
+            return error_msg
         
         # Run available DNS lookup commands
         results = []
         
-        # Add resolv.conf check
+        # Add resolv.conf check using kubectl exec
         try:
-            resolv_cmd = ['/bin/sh', '-c', 'cat /etc/resolv.conf']
-            resp = v1.connect_get_namespaced_pod_exec(
-                name=pod_name,
-                namespace=namespace,
-                container=selected_container,
-                command=resolv_cmd,
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False
-            )
+            kubectl_resolv_cmd = [
+                'kubectl', 'exec', '-n', namespace, pod_name, 
+                '-c', selected_container, '--', '/bin/sh', '-c', 
+                'cat /etc/resolv.conf'
+            ]
+            
+            result = subprocess.run(kubectl_resolv_cmd, capture_output=True, text=True, timeout=30)
+            resp = result.stdout.strip()
             results.append(f"DNS Configuration (/etc/resolv.conf):\n{resp}\n")
-        except Exception:
+        except Exception as resolv_error:
+            print(f"[DEBUG] Resolv.conf check failed: {resolv_error}")
             results.append("Could not read DNS configuration (/etc/resolv.conf)\n")
         
-        # Run dig if available
+        # Run dig if available using kubectl exec
         if dns_tools["dig"]:
-            dig_cmd = ['/bin/sh', '-c', f'dig {target} {query_type}']
             try:
-                resp = v1.connect_get_namespaced_pod_exec(
-                    name=pod_name,
-                    namespace=namespace,
-                    container=selected_container,
-                    command=dig_cmd,
-                    stderr=True,
-                    stdin=False,
-                    stdout=True,
-                    tty=False
-                )
+                kubectl_dig_cmd = [
+                    'kubectl', 'exec', '-n', namespace, pod_name, 
+                    '-c', selected_container, '--', '/bin/sh', '-c', 
+                    f'dig {target} {query_type}'
+                ]
+                
+                result = subprocess.run(kubectl_dig_cmd, capture_output=True, text=True, timeout=30)
+                resp = result.stdout.strip()
                 results.append(f"Dig Results:\n{resp}\n")
             except Exception as e:
+                print(f"[DEBUG] Dig command failed: {e}")
                 results.append(f"Error running dig: {str(e)}\n")
         
-        # Run nslookup if available
+        # Run nslookup if available using kubectl exec
         if dns_tools["nslookup"]:
-            nslookup_cmd = ['/bin/sh', '-c', f'nslookup -type={query_type} {target}']
             try:
-                resp = v1.connect_get_namespaced_pod_exec(
-                    name=pod_name,
-                    namespace=namespace,
-                    container=selected_container,
-                    command=nslookup_cmd,
-                    stderr=True,
-                    stdin=False,
-                    stdout=True,
-                    tty=False
-                )
+                kubectl_nslookup_cmd = [
+                    'kubectl', 'exec', '-n', namespace, pod_name, 
+                    '-c', selected_container, '--', '/bin/sh', '-c', 
+                    f'nslookup -type={query_type} {target}'
+                ]
+                
+                result = subprocess.run(kubectl_nslookup_cmd, capture_output=True, text=True, timeout=30)
+                resp = result.stdout.strip()
                 results.append(f"Nslookup Results:\n{resp}\n")
             except Exception as e:
+                print(f"[DEBUG] Nslookup command failed: {e}")
                 results.append(f"Error running nslookup: {str(e)}\n")
         
-        return "\n".join(results)
+        final_result = "\n".join(results)
+        print(f"[DEBUG] Returning DNS tool results: {final_result}")
+        return final_result
     
     except Exception as e:
-        return f"Error running DNS tools: {str(e)}"
+        error_msg = f"Error running DNS tools: {str(e)}"
+        print(f"[DEBUG] Returning general error message: {error_msg}")
+        return error_msg
 
 @mcp.tool()
 def collect_diagnostic_data(pod_name: str, container_name: str = None, namespace: str = "default") -> str:
@@ -458,59 +474,88 @@ def collect_diagnostic_data(pod_name: str, container_name: str = None, namespace
         container_name: The name of the container
         namespace: The namespace of the pod
     """
+    print(f"[DEBUG] collect_diagnostic_data called with: pod_name={pod_name}, container_name={container_name}, namespace={namespace}")
     try:
         # Verify the pod exists
+        print(f"[DEBUG] Verifying pod '{pod_name}' exists in namespace '{namespace}'")
         try:
             pod = v1.read_namespaced_pod(name=pod_name, namespace=namespace)
+            print(f"[DEBUG] Pod found: {pod.metadata.name}")
         except client.exceptions.ApiException as e:
+            print(f"[DEBUG] Pod verification failed: {e}")
             if e.status == 404:
-                return f"Error: Pod '{pod_name}' not found in namespace '{namespace}'."
+                error_msg = f"Error: Pod '{pod_name}' not found in namespace '{namespace}'."
+                print(f"[DEBUG] Returning error message: {error_msg}")
+                return error_msg
             else:
-                return f"Error accessing pod: {str(e)}"
+                error_msg = f"Error accessing pod: {str(e)}"
+                print(f"[DEBUG] Returning error message: {error_msg}")
+                return error_msg
         
         # Find the container to use
+        print(f"[DEBUG] Finding container to use. container_name={container_name}")
         selected_container = None
         if container_name:
+            print(f"[DEBUG] Looking for specific container '{container_name}'")
             for container in pod.spec.containers:
+                print(f"[DEBUG] Found container: {container.name}")
                 if container.name == container_name:
                     selected_container = container.name
+                    print(f"[DEBUG] Selected container: {selected_container}")
                     break
             if not selected_container:
-                return f"Error: Container '{container_name}' not found in pod '{pod_name}'."
+                error_msg = f"Error: Container '{container_name}' not found in pod '{pod_name}'."
+                print(f"[DEBUG] Returning error message: {error_msg}")
+                return error_msg
         else:
             selected_container = pod.spec.containers[0].name
+            print(f"[DEBUG] Using first container: {selected_container}")
+        
+        print(f"[DEBUG] Final selected container: {selected_container}")
         
         # Check if tcpdump is available in the selected container using kubectl exec
+        print(f"[DEBUG] Checking if tcpdump is available in container '{selected_container}'")
         try:
-            import subprocess
-            
             kubectl_check_cmd = [
                 'kubectl', 'exec', '-n', namespace, pod_name, 
                 '-c', selected_container, '--', '/bin/sh', '-c', 
                 'command -v tcpdump || echo "not found"'
             ]
             
+            print(f"[DEBUG] Running kubectl command: {' '.join(kubectl_check_cmd)}")
             result = subprocess.run(kubectl_check_cmd, capture_output=True, text=True, timeout=30)
             resp = result.stdout.strip()
+            print(f"[DEBUG] Tcpdump check result: {resp}")
             tcpdump_available = "not found" not in resp
-        except Exception:
+            print(f"[DEBUG] Tcpdump available: {tcpdump_available}")
+        except Exception as e:
+            print(f"[DEBUG] Tcpdump check failed: {e}")
             # If we can't check, assume tcpdump is not available
             tcpdump_available = False
         
         # Create a directory for diagnostic data
+        print(f"[DEBUG] Creating diagnostic directory")
         timestamp = int(time.time())
         diagnostic_dir = f"/tmp/diagnostic-{pod_name}-{timestamp}"
-        mkdir_cmd = ['/bin/sh', '-c', f"mkdir -p {diagnostic_dir}"]
-        v1.connect_get_namespaced_pod_exec(
-            name=pod_name,
-            namespace=namespace,
-            container=selected_container,
-            command=mkdir_cmd,
-            stderr=True,
-            stdin=False,
-            stdout=True,
-            tty=False
-        )
+        print(f"[DEBUG] Diagnostic directory: {diagnostic_dir}")
+        
+        # Use kubectl exec for directory creation
+        mkdir_kubectl_cmd = [
+            'kubectl', 'exec', '-n', namespace, pod_name, 
+            '-c', selected_container, '--', '/bin/sh', '-c', 
+            f'mkdir -p {diagnostic_dir}'
+        ]
+        print(f"[DEBUG] Running kubectl mkdir command: {' '.join(mkdir_kubectl_cmd)}")
+        try:
+            result = subprocess.run(mkdir_kubectl_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                print(f"[DEBUG] Directory creation successful")
+            else:
+                print(f"[DEBUG] Directory creation failed: {result.stderr}")
+                return f"Error creating diagnostic directory: {result.stderr}"
+        except Exception as e:
+            print(f"[DEBUG] Directory creation failed: {e}")
+            return f"Error creating diagnostic directory: {str(e)}"
         
         # Collect diagnostic data
         diagnostic_files = []
@@ -535,51 +580,68 @@ def collect_diagnostic_data(pod_name: str, container_name: str = None, namespace
             diagnostic_commands["tcpdump_info"] = f"tcpdump --version > {diagnostic_dir}/tcpdump-version.txt 2>/dev/null || echo 'tcpdump version info not available' > {diagnostic_dir}/tcpdump-version.txt"
         
         # Execute each diagnostic command
+        print(f"[DEBUG] Executing diagnostic commands")
         for name, cmd in diagnostic_commands.items():
+            print(f"[DEBUG] Executing command '{name}': {cmd}")
             try:
-                exec_cmd = ['/bin/sh', '-c', cmd]
-                v1.connect_get_namespaced_pod_exec(
-                    name=pod_name,
-                    namespace=namespace,
-                    container=selected_container,
-                    command=exec_cmd,
-                    stderr=True,
-                    stdin=False,
-                    stdout=True,
-                    tty=False
-                )
-                diagnostic_files.append(name)
-            except Exception:
+                # Use kubectl exec for command execution
+                kubectl_cmd = [
+                    'kubectl', 'exec', '-n', namespace, pod_name, 
+                    '-c', selected_container, '--', '/bin/sh', '-c', cmd
+                ]
+                print(f"[DEBUG] Running kubectl command: {' '.join(kubectl_cmd)}")
+                result = subprocess.run(kubectl_cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    diagnostic_files.append(name)
+                    print(f"[DEBUG] Command '{name}' executed successfully")
+                else:
+                    print(f"[DEBUG] Command '{name}' failed with return code {result.returncode}: {result.stderr}")
+                    # Continue with other commands if one fails
+            except Exception as e:
+                print(f"[DEBUG] Command '{name}' failed: {e}")
                 # Continue with other commands if one fails
                 pass
         
         # Get container logs
+        print(f"[DEBUG] Collecting container logs")
         try:
-            logs = v1.read_namespaced_pod_log(
-                name=pod_name,
-                namespace=namespace,
-                container=selected_container,
-                tail_lines=1000
-            )
+            print(f"[DEBUG] Reading logs for pod '{pod_name}', container '{selected_container}'")
+            # Use kubectl logs to get container logs
+            kubectl_logs_cmd = [
+                'kubectl', 'logs', '-n', namespace, pod_name, 
+                '-c', selected_container, '--tail=1000'
+            ]
+            print(f"[DEBUG] Running kubectl logs command: {' '.join(kubectl_logs_cmd)}")
+            result = subprocess.run(kubectl_logs_cmd, capture_output=True, text=True, timeout=30)
             
-            log_file = f"{diagnostic_dir}/container-logs.txt"
-            write_cmd = ['/bin/sh', '-c', f"cat > {log_file} << 'EOL'\n{logs}\nEOL"]
-            v1.connect_get_namespaced_pod_exec(
-                name=pod_name,
-                namespace=namespace,
-                container=selected_container,
-                command=write_cmd,
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False
-            )
-            diagnostic_files.append("container-logs")
-        except Exception:
+            if result.returncode == 0:
+                logs = result.stdout
+                print(f"[DEBUG] Logs retrieved, length: {len(logs) if logs else 0}")
+                
+                # Write logs to file using kubectl exec
+                log_file = f"{diagnostic_dir}/container-logs.txt"
+                write_logs_cmd = [
+                    'kubectl', 'exec', '-n', namespace, pod_name, 
+                    '-c', selected_container, '--', '/bin/sh', '-c', 
+                    f"cat > {log_file} << 'EOL'\n{logs}\nEOL"
+                ]
+                print(f"[DEBUG] Writing logs to {log_file}")
+                write_result = subprocess.run(write_logs_cmd, capture_output=True, text=True, timeout=30)
+                
+                if write_result.returncode == 0:
+                    diagnostic_files.append("container-logs")
+                    print(f"[DEBUG] Container logs collected successfully")
+                else:
+                    print(f"[DEBUG] Failed to write logs to file: {write_result.stderr}")
+            else:
+                print(f"[DEBUG] Failed to retrieve logs: {result.stderr}")
+        except Exception as e:
+            print(f"[DEBUG] Container logs collection failed: {e}")
             # Continue if logs can't be collected
             pass
         
         # Create a summary file
+        print(f"[DEBUG] Creating summary file")
         summary = f"Diagnostic data collected at {timestamp}\n"
         summary += f"Pod: {pod_name}\n"
         summary += f"Container: {selected_container}\n"
@@ -589,23 +651,33 @@ def collect_diagnostic_data(pod_name: str, container_name: str = None, namespace
         for file in diagnostic_files:
             summary += f"- {file}\n"
         
+        print(f"[DEBUG] Summary: {summary}")
         summary_file = f"{diagnostic_dir}/summary.txt"
-        write_summary_cmd = ['/bin/sh', '-c', f"cat > {summary_file} << 'EOL'\n{summary}\nEOL"]
-        v1.connect_get_namespaced_pod_exec(
-            name=pod_name,
-            namespace=namespace,
-            container=selected_container,
-            command=write_summary_cmd,
-            stderr=True,
-            stdin=False,
-            stdout=True,
-            tty=False
-        )
         
-        return f"Diagnostic data collected and saved to {diagnostic_dir}\n{summary}"
+        # Use kubectl exec to write summary file
+        write_summary_kubectl_cmd = [
+            'kubectl', 'exec', '-n', namespace, pod_name, 
+            '-c', selected_container, '--', '/bin/sh', '-c', 
+            f"cat > {summary_file} << 'EOL'\n{summary}\nEOL"
+        ]
+        print(f"[DEBUG] Writing summary to {summary_file}")
+        try:
+            result = subprocess.run(write_summary_kubectl_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                print(f"[DEBUG] Summary file created successfully")
+            else:
+                print(f"[DEBUG] Summary file creation failed: {result.stderr}")
+        except Exception as e:
+            print(f"[DEBUG] Summary file creation failed: {e}")
+        
+        result_msg = f"Diagnostic data collected and saved to {diagnostic_dir}\n{summary}"
+        print(f"[DEBUG] Returning result: {result_msg}")
+        return result_msg
     
     except Exception as e:
-        return f"Error collecting diagnostic data: {str(e)}"  
+        error_msg = f"Error collecting diagnostic data: {str(e)}"
+        print(f"[DEBUG] General error: {error_msg}")
+        return error_msg  
 
 if __name__ == "__main__":
     # Run the server with streamable-http transport
