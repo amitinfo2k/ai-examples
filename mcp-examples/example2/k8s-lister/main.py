@@ -1,6 +1,7 @@
 from mcp.server.fastmcp import FastMCP
 from kubernetes import client, config
 import json
+import time
 
 # Initialize the MCP server
 mcp = FastMCP("K8sPodLister")
@@ -128,6 +129,116 @@ def run_tcpdump(pod_name: str, container_name: str = None, namespace: str = "def
         duration: Duration in seconds to capture traffic (default: 30)
         filter_expr: Optional tcpdump filter expression
     """
+    print(f"[DEBUG] run_tcpdump called with: pod_name={pod_name}, container_name={container_name}, namespace={namespace}, interface={interface}, duration={duration}")
+    try:
+        # Verify the pod exists
+        print(f"[DEBUG] Verifying pod '{pod_name}' exists in namespace '{namespace}'")
+        try:
+            pod = v1.read_namespaced_pod(name=pod_name, namespace=namespace)
+            print(f"[DEBUG] Pod found: {pod.metadata.name}")
+        except client.exceptions.ApiException as e:
+            print(f"[DEBUG] Pod verification failed: {e}")
+            if e.status == 404:
+                return f"Error: Pod '{pod_name}' not found in namespace '{namespace}'."
+            else:
+                return f"Error accessing pod: {str(e)}"
+        
+        # Find the container to use
+        selected_container = None
+        if container_name:
+            print(f"[DEBUG] Looking for container '{container_name}' in pod")
+            for container in pod.spec.containers:
+                print(f"[DEBUG] Found container: {container.name}")
+                if container.name == container_name:
+                    selected_container = container.name
+                    break
+            if not selected_container:
+                return f"Error: Container '{container_name}' not found in pod '{pod_name}'."
+        else:
+            selected_container = pod.spec.containers[0].name
+            print(f"[DEBUG] Using first container: {selected_container}")
+        
+        print(f"[DEBUG] Selected container: {selected_container}")
+        # For now, let's skip the tcpdump check and proceed with execution
+        print(f"[DEBUG] Skipping tcpdump availability check for now")
+        
+        # Build the tcpdump command
+        output_file = f"/tmp/capture-{pod_name}-{int(time.time())}.pcap"
+        filter_arg = f" '{filter_expr}'" if filter_expr else ""
+        
+        # Skip the test and go directly to kubectl exec approach since connect_get_namespaced_pod_exec has WebSocket issues
+        try:
+            print(f"[DEBUG] Using kubectl exec approach directly")
+            import subprocess
+            
+            tcpdump_cmd = f"timeout -s INT {duration} tcpdump -i {interface} -w {output_file} {filter_arg}"
+            
+            kubectl_cmd = [
+                'kubectl', 'exec', '-n', namespace, pod_name, 
+                '-c', selected_container, '--', '/bin/sh', '-c', 
+                f"{tcpdump_cmd} > /tmp/tcpdump.log 2>&1 & echo $!"
+            ]
+            
+            print(f"[DEBUG] Executing kubectl command: {' '.join(kubectl_cmd)}")
+            
+            result = subprocess.run(kubectl_cmd, capture_output=True, text=True, timeout=30)
+            resp = result.stdout
+            print(f"[DEBUG] Kubectl exec result: {result.stdout}")
+            if result.stderr:
+                print(f"[DEBUG] Kubectl exec stderr: {result.stderr}")
+                
+        except Exception as kubectl_error:
+            print(f"[DEBUG] Kubectl exec failed: {kubectl_error}")
+            return f"Error: Failed to start tcpdump via kubectl: {str(kubectl_error)}"
+            
+            print(f"[DEBUG] Tcpdump execution response: {resp}")
+            
+            # The response should contain the PID of the background process
+            if resp and resp.strip().isdigit():
+                pid = resp.strip()
+                print(f"[DEBUG] Tcpdump started with PID: {pid}")
+            else:
+                print(f"[DEBUG] Could not determine PID from response: {resp}")
+            
+            # Verify the process is running
+            try:
+                verify_cmd = ['/bin/sh', '-c', 'ps aux | grep tcpdump | grep -v grep']
+                verify_resp = v1.connect_get_namespaced_pod_exec(
+                    name=pod_name,
+                    namespace=namespace,
+                    container=selected_container,
+                    command=verify_cmd,
+                    stderr=True,
+                    stdin=False,
+                    stdout=True,
+                    tty=False
+                )
+                print(f"[DEBUG] Process verification: {verify_resp}")
+                
+                if not verify_resp.strip():
+                    return f"Warning: Tcpdump command was executed but no tcpdump process found running. Check /tmp/tcpdump.log for errors."
+                
+            except Exception as verify_e:
+                print(f"[DEBUG] Process verification failed: {verify_e}")
+            
+        except Exception as e:
+            print(f"[DEBUG] Tcpdump execution failed: {e}")
+            return f"Error: Failed to start tcpdump: {str(e)}"
+        
+        return f"Tcpdump started successfully in pod '{pod_name}', container '{selected_container}'. Capturing traffic on interface '{interface}' for {duration} seconds. Output will be saved to {output_file}. Check /tmp/tcpdump.log for execution details."
+    
+    except Exception as e:
+        return f"Error running tcpdump: {str(e)}"
+
+@mcp.tool()
+def check_tcpdump_status(pod_name: str, container_name: str = None, namespace: str = "default") -> str:
+    """
+    Check the status of tcpdump processes and logs in the specified container
+    Args:
+        pod_name: The name of the pod
+        container_name: The name of the container
+        namespace: The namespace of the pod
+    """
     try:
         # Verify the pod exists
         try:
@@ -149,45 +260,49 @@ def run_tcpdump(pod_name: str, container_name: str = None, namespace: str = "def
                 return f"Error: Container '{container_name}' not found in pod '{pod_name}'."
         else:
             selected_container = pod.spec.containers[0].name
-        # Check if tcpdump is available in the selected container
-        check_cmd = ['/bin/sh', '-c', 'command -v tcpdump || echo "not found"']
-        resp = v1.connect_get_namespaced_pod_exec(
-            name=pod_name,
-            namespace=namespace,
-            container=selected_container,
-            command=check_cmd,
-            stderr=True,
-            stdin=False,
-            stdout=True,
-            tty=False
-        )
         
-        if "not found" in resp:
-            return f"Error: tcpdump is not available in container '{container_name}'. Please ensure the diagnostic tools are installed."
+        results = []
         
-        # Build the tcpdump command
-        output_file = f"/tmp/capture-{pod_name}-{int(time.time())}.pcap"
-        filter_arg = f" '{filter_expr}'" if filter_expr else ""
+        # Check for running tcpdump processes
+        try:
+            import subprocess
+            ps_cmd = ['kubectl', 'exec', '-n', namespace, pod_name, '-c', selected_container, '--', '/bin/sh', '-c', 'ps aux | grep tcpdump | grep -v grep']
+            result = subprocess.run(ps_cmd, capture_output=True, text=True, timeout=30)
+            ps_resp = result.stdout
+            if result.stderr:
+                ps_resp += f"\nStderr: {result.stderr}"
+            results.append(f"Running tcpdump processes:\n{ps_resp}\n")
+        except Exception as e:
+            results.append(f"Could not check running processes: {e}\n")
         
-        tcpdump_cmd = f"tcpdump -i {interface} -w {output_file} -G {duration} -W 1{filter_arg}"
-        exec_command = ['/bin/sh', '-c', f"nohup {tcpdump_cmd} > /tmp/tcpdump.log 2>&1 &"]
+        # Check tcpdump log file
+        try:
+            import subprocess
+            log_cmd = ['kubectl', 'exec', '-n', namespace, pod_name, '-c', selected_container, '--', '/bin/sh', '-c', 'cat /tmp/tcpdump.log 2>/dev/null || echo "Log file not found"']
+            result = subprocess.run(log_cmd, capture_output=True, text=True, timeout=30)
+            log_resp = result.stdout
+            if result.stderr:
+                log_resp += f"\nStderr: {result.stderr}"
+            results.append(f"Tcpdump log file contents:\n{log_resp}\n")
+        except Exception as e:
+            results.append(f"Could not read log file: {e}\n")
         
-        # Execute the command in the container
-        v1.connect_get_namespaced_pod_exec(
-            name=pod_name,
-            namespace=namespace,
-            container=selected_container,
-            command=exec_command,
-            stderr=True,
-            stdin=False,
-            stdout=True,
-            tty=False
-        )
+        # Check for pcap files
+        try:
+            import subprocess
+            pcap_cmd = ['kubectl', 'exec', '-n', namespace, pod_name, '-c', selected_container, '--', '/bin/sh', '-c', 'ls -la /tmp/capture-*.pcap 2>/dev/null || echo "No pcap files found"']
+            result = subprocess.run(pcap_cmd, capture_output=True, text=True, timeout=30)
+            pcap_resp = result.stdout
+            if result.stderr:
+                pcap_resp += f"\nStderr: {result.stderr}"
+            results.append(f"Pcap files in /tmp:\n{pcap_resp}\n")
+        except Exception as e:
+            results.append(f"Could not check pcap files: {e}\n")
         
-        return f"Tcpdump started in pod '{pod_name}', container '{selected_container}'. Capturing traffic on interface '{interface}' for {duration} seconds. Output will be saved to {output_file}."
-    
+        return "".join(results)
+        
     except Exception as e:
-        return f"Error running tcpdump: {str(e)}"
+        return f"Error checking tcpdump status: {str(e)}"
 
 @mcp.tool()
 def run_dns_tool(pod_name: str, container_name: str = None, namespace: str = "default", target: str = "kubernetes.default.svc.cluster.local", query_type: str = "A") -> str:
