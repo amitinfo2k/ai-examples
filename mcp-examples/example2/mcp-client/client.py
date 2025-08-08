@@ -161,16 +161,32 @@ class MCPClient:
                         "role": "assistant",
                         "content": assistant_message_content
                     })
-                    messages.append({
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": content.id,
-                                "content": raw_result + "\n\nCRITICAL INSTRUCTION: Parse this JSON and ONLY output a markdown table. DO NOT include ANY text before or after the table. NO explanations, NO descriptions, NO introductions, NO conclusions.\n\nFor pods data, use EXACTLY these column headers:\n| Pod Name | Status | CPU Request | Memory Request |\n\nFor services data, use EXACTLY these column headers:\n| Service Name | Status | Cluster IP | Ports | Node Port | Selector |\n\nYour entire response must be ONLY the markdown table and nothing else."
-                            }
-                        ]
-                    })
+                    
+                    # Check if the result is an error message
+                    if raw_result.startswith("Error:") or raw_result.startswith("Warning:"):
+                        # For error messages, just pass them through without table formatting
+                        messages.append({
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": content.id,
+                                    "content": raw_result + "\n\nCRITICAL INSTRUCTION: This is an error or warning message. Output it exactly as is, without any formatting changes. Do not try to create a table or modify the message in any way."
+                                }
+                            ]
+                        })
+                    else:
+                        # For successful results, format as table
+                        messages.append({
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": content.id,
+                                    "content": raw_result + "\n\nCRITICAL INSTRUCTION: Parse this JSON and ONLY output a markdown table. DO NOT include ANY text before or after the table. NO explanations, NO descriptions, NO introductions, NO conclusions.\n\nFor pods data, use EXACTLY these column headers:\n| Pod Name | Status | CPU Request | Memory Request |\n\nFor services data, use EXACTLY these column headers:\n| Service Name | Status | Cluster IP | Ports | Node Port | Selector |\n\nYour entire response must be ONLY the markdown table and nothing else."
+                                }
+                            ]
+                        })
 
                     # Get next response from Claude
                     response = self.anthropic.messages.create(

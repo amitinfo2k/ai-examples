@@ -159,14 +159,40 @@ def run_tcpdump(pod_name: str, container_name: str = None, namespace: str = "def
             print(f"[DEBUG] Using first container: {selected_container}")
         
         print(f"[DEBUG] Selected container: {selected_container}")
-        # For now, let's skip the tcpdump check and proceed with execution
-        print(f"[DEBUG] Skipping tcpdump availability check for now")
+        
+        # Check if tcpdump is available in the selected container using kubectl exec
+        print(f"[DEBUG] Checking tcpdump availability in container '{selected_container}' using kubectl exec")
+        try:
+            import subprocess
+            
+            kubectl_check_cmd = [
+                'kubectl', 'exec', '-n', namespace, pod_name, 
+                '-c', selected_container, '--', '/bin/sh', '-c', 
+                'command -v tcpdump || echo "not found"'
+            ]
+            
+            print(f"[DEBUG] Executing kubectl check command: {' '.join(kubectl_check_cmd)}")
+            
+            result = subprocess.run(kubectl_check_cmd, capture_output=True, text=True, timeout=30)
+            resp = result.stdout.strip()
+            print(f"[DEBUG] Tcpdump availability check response: {resp}")
+            
+            if "not found" in resp:
+                error_msg = f"Error: tcpdump is not available in container '{selected_container}'. Please ensure the diagnostic tools are installed."
+                print(f"[DEBUG] Returning error message: {error_msg}")
+                return error_msg
+                
+        except Exception as check_error:
+            print(f"[DEBUG] Tcpdump availability check failed: {check_error}")
+            return f"Error: Failed to check tcpdump availability: {str(check_error)}"
+        
+        print(f"[DEBUG] Tcpdump is available, proceeding with capture")
         
         # Build the tcpdump command
         output_file = f"/tmp/capture-{pod_name}-{int(time.time())}.pcap"
         filter_arg = f" '{filter_expr}'" if filter_expr else ""
         
-        # Skip the test and go directly to kubectl exec approach since connect_get_namespaced_pod_exec has WebSocket issues
+        # Execute tcpdump using kubectl exec approach since connect_get_namespaced_pod_exec has WebSocket issues
         try:
             print(f"[DEBUG] Using kubectl exec approach directly")
             import subprocess
@@ -187,10 +213,6 @@ def run_tcpdump(pod_name: str, container_name: str = None, namespace: str = "def
             if result.stderr:
                 print(f"[DEBUG] Kubectl exec stderr: {result.stderr}")
                 
-        except Exception as kubectl_error:
-            print(f"[DEBUG] Kubectl exec failed: {kubectl_error}")
-            return f"Error: Failed to start tcpdump via kubectl: {str(kubectl_error)}"
-            
             print(f"[DEBUG] Tcpdump execution response: {resp}")
             
             # The response should contain the PID of the background process
@@ -200,19 +222,16 @@ def run_tcpdump(pod_name: str, container_name: str = None, namespace: str = "def
             else:
                 print(f"[DEBUG] Could not determine PID from response: {resp}")
             
-            # Verify the process is running
+            # Verify the process is running using kubectl exec
             try:
-                verify_cmd = ['/bin/sh', '-c', 'ps aux | grep tcpdump | grep -v grep']
-                verify_resp = v1.connect_get_namespaced_pod_exec(
-                    name=pod_name,
-                    namespace=namespace,
-                    container=selected_container,
-                    command=verify_cmd,
-                    stderr=True,
-                    stdin=False,
-                    stdout=True,
-                    tty=False
-                )
+                kubectl_verify_cmd = [
+                    'kubectl', 'exec', '-n', namespace, pod_name, 
+                    '-c', selected_container, '--', '/bin/sh', '-c', 
+                    'ps aux | grep tcpdump | grep -v grep'
+                ]
+                
+                verify_result = subprocess.run(kubectl_verify_cmd, capture_output=True, text=True, timeout=30)
+                verify_resp = verify_result.stdout
                 print(f"[DEBUG] Process verification: {verify_resp}")
                 
                 if not verify_resp.strip():
@@ -221,14 +240,20 @@ def run_tcpdump(pod_name: str, container_name: str = None, namespace: str = "def
             except Exception as verify_e:
                 print(f"[DEBUG] Process verification failed: {verify_e}")
             
-        except Exception as e:
-            print(f"[DEBUG] Tcpdump execution failed: {e}")
-            return f"Error: Failed to start tcpdump: {str(e)}"
-        
-        return f"Tcpdump started successfully in pod '{pod_name}', container '{selected_container}'. Capturing traffic on interface '{interface}' for {duration} seconds. Output will be saved to {output_file}. Check /tmp/tcpdump.log for execution details."
+            success_msg = f"Tcpdump started successfully in pod '{pod_name}', container '{selected_container}'. Capturing traffic on interface '{interface}' for {duration} seconds. Output will be saved to {output_file}. Check /tmp/tcpdump.log for execution details."
+            print(f"[DEBUG] Returning success message: {success_msg}")
+            return success_msg
+                
+        except Exception as kubectl_error:
+            print(f"[DEBUG] Kubectl exec failed: {kubectl_error}")
+            error_msg = f"Error: Failed to start tcpdump via kubectl: {str(kubectl_error)}"
+            print(f"[DEBUG] Returning kubectl error message: {error_msg}")
+            return error_msg
     
     except Exception as e:
-        return f"Error running tcpdump: {str(e)}"
+        error_msg = f"Error running tcpdump: {str(e)}"
+        print(f"[DEBUG] Returning general error message: {error_msg}")
+        return error_msg
 
 @mcp.tool()
 def check_tcpdump_status(pod_name: str, container_name: str = None, namespace: str = "default") -> str:
@@ -454,6 +479,24 @@ def collect_diagnostic_data(pod_name: str, container_name: str = None, namespace
                 return f"Error: Container '{container_name}' not found in pod '{pod_name}'."
         else:
             selected_container = pod.spec.containers[0].name
+        
+        # Check if tcpdump is available in the selected container using kubectl exec
+        try:
+            import subprocess
+            
+            kubectl_check_cmd = [
+                'kubectl', 'exec', '-n', namespace, pod_name, 
+                '-c', selected_container, '--', '/bin/sh', '-c', 
+                'command -v tcpdump || echo "not found"'
+            ]
+            
+            result = subprocess.run(kubectl_check_cmd, capture_output=True, text=True, timeout=30)
+            resp = result.stdout.strip()
+            tcpdump_available = "not found" not in resp
+        except Exception:
+            # If we can't check, assume tcpdump is not available
+            tcpdump_available = False
+        
         # Create a directory for diagnostic data
         timestamp = int(time.time())
         diagnostic_dir = f"/tmp/diagnostic-{pod_name}-{timestamp}"
@@ -486,6 +529,10 @@ def collect_diagnostic_data(pod_name: str, container_name: str = None, namespace
             "disk": f"df -h > {diagnostic_dir}/disk-usage.txt 2>/dev/null || echo 'df not available' > {diagnostic_dir}/disk-usage.txt",
             "env_vars": f"env > {diagnostic_dir}/environment.txt 2>/dev/null || echo 'env not available' > {diagnostic_dir}/environment.txt"
         }
+        
+        # Add tcpdump diagnostic if available
+        if tcpdump_available:
+            diagnostic_commands["tcpdump_info"] = f"tcpdump --version > {diagnostic_dir}/tcpdump-version.txt 2>/dev/null || echo 'tcpdump version info not available' > {diagnostic_dir}/tcpdump-version.txt"
         
         # Execute each diagnostic command
         for name, cmd in diagnostic_commands.items():
@@ -535,8 +582,9 @@ def collect_diagnostic_data(pod_name: str, container_name: str = None, namespace
         # Create a summary file
         summary = f"Diagnostic data collected at {timestamp}\n"
         summary += f"Pod: {pod_name}\n"
-        summary += f"Container: {container_name}\n"
+        summary += f"Container: {selected_container}\n"
         summary += f"Namespace: {namespace}\n"
+        summary += f"Tcpdump available: {tcpdump_available}\n"
         summary += "Files collected:\n"
         for file in diagnostic_files:
             summary += f"- {file}\n"
