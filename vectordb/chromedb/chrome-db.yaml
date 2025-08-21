@@ -1,0 +1,43 @@
+# chroma-k8s.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chroma-deployment
+  namespace: chromedb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chroma
+  template:
+    metadata:
+      labels:
+        app: chroma
+    spec:
+      containers:
+      - name: chroma
+        image: chromadb/chroma  # Official ChromaDB image
+        args:
+          - "run"
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - "8000"
+        ports:
+        - containerPort: 8000
+          name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chroma-service
+  namespace: chromedb
+spec:
+  selector:
+    app: chroma  # This must match the labels in the Deployment
+  ports:
+    - protocol: TCP
+      port: 8000       # The port the service will expose
+      targetPort: 8000   # The port the container is listening on
+  type: ClusterIP # Exposes the service inside the cluster
