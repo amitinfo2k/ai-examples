@@ -1,0 +1,3 @@
+15:10:05.123456 IP my-desktop.5353 > 224.0.0.251.5353: 0 [b2&3=0x8400] PTR (QM)? _googlecast._tcp.local.
+15:10:05.567890 IP my-workstation.local.58951 > dns-server.local.53: 54321+ A? api.example.com.
+15:10:05.987654 IP api.example.com.443 > my-workstation.local.58951: Flags [P.], seq 1:141, ack 297, win 502, length 140

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pcap-pod
+spec:
+  containers:
+  - name: pcap-container
+    image: nginx
+    volumeMounts:
+    - mountPath: "/mnt/data"
+      name: pcap-volume
+  volumes:
+  - name: pcap-volume
+    persistentVolumeClaim:
+      claimName: pcap-pvc
