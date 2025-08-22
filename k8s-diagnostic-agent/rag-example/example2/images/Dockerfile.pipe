@@ -1,0 +1,34 @@
+# Build stage
+FROM python:3.10-slim AS builder
+WORKDIR /app
+COPY requirements.txt .
+# First install core dependencies with specific versions for compatibility
+RUN pip install --no-cache-dir --upgrade pip==25.2 \
+    && pip install --no-cache-dir numpy==1.24.3 \
+    && pip install --no-cache-dir huggingface-hub==0.16.4 \
+    && pip install --no-cache-dir transformers==4.30.2
+
+# Install CPU-only torch and sentence-transformers
+RUN pip install --no-cache-dir --target=/install torch==2.0.1+cpu -f https://download.pytorch.org/whl/torch_stable.html \
+    && pip install --no-cache-dir --target=/install sentence-transformers==2.2.2 \
+    && pip install --no-cache-dir --target=/install -r requirements.txt || { echo "Failed to install dependencies"; exit 1; } \
+    && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L12-v2').save('/install/models/all-MiniLM-L12-v2')" || { echo "Failed to download model"; exit 1; } \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libpcap-dev build-essential \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Final stage
+FROM python:3.10-slim
+WORKDIR /app
+# Copy Python packages and model
+COPY --from=builder /install /usr/local/lib/python3.10/site-packages
+COPY --from=builder /install/models /app/models
+# Install runtime dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpcap-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+# Set environment
+ENV PYTHONPATH=/usr/local/lib/python3.10/site-packages
+CMD ["python"]
