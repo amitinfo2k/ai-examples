@@ -5,10 +5,9 @@ This guide explains how to use the GTP (GPRS Tunneling Protocol) packet analysis
 ## Overview
 
 The system consists of several components:
-1. **Sample Packet Generator** - Creates test GTP packets
-2. **GTP Analyzer** - Parses and analyzes GTP packets from PCAP files
-3. **RAG System** - Uses Google Gemini AI for intelligent packet analysis
-4. **Test Suite** - Validates the complete system
+1. **GTP Analyzer** - Parses and analyzes GTP packets from PCAP files
+2. **RAG System** - Uses Google Gemini AI for intelligent packet analysis
+3. **Test Suite** - Validates the complete system
 
 ## Quick Start
 
@@ -54,23 +53,6 @@ python test_gtp_system.py
 ```
 
 ## System Components
-
-### Sample Packet Generator (`sample_gtp_packets.py`) - Optional
-
-**Note:** This file is only needed for testing when you don't have real GTP PCAP files.
-
-Creates test GTP packets including:
-- GTP with ICMP Echo Request/Reply
-- GTP with TCP data
-- GTP Echo Request/Response
-- Various TEIDs and message types
-
-**Usage:**
-```bash
-python sample_gtp_packets.py
-```
-
-**Output:** `sample_gtp_packets.pcap`
 
 ### GTP Analyzer (`rag-gtp-analysis.py`)
 

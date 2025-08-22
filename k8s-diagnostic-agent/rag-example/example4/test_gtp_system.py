@@ -127,41 +127,6 @@ def run_interactive_demo():
             print("Please run: python rag-gtp-analysis.py --pcap your_file.pcap --interactive")
             return
             
-            if not summary:
-                print("No analysis results")
-                return
-            
-            # Print summary
-            analyzer.print_summary()
-            
-            # Setup RAG system
-            rag_system = SimpleRAGSystem(api_key)
-            vectorstore = rag_system.create_vectorstore(analyzer)
-            
-            if not vectorstore:
-                print("Could not create vector store")
-                return
-            
-            qa_chain = rag_system.setup_qa_chain(vectorstore)
-            
-            # Interactive loop
-            while True:
-                try:
-                    question = input("\nAsk a question about the GTP packets (or 'quit'/'exit'): ")
-                    
-                    if question.lower() in ['quit', 'exit']:
-                        print("Exiting interactive mode...")
-                        break
-                    
-                    if question.strip():
-                        rag_system.ask_question(qa_chain, question)
-                        
-                except KeyboardInterrupt:
-                    print("\nExiting...")
-                    break
-                except Exception as e:
-                    print(f"Error: {e}")
-            
         except Exception as e:
             print(f"Error in interactive demo: {e}")
             import traceback
