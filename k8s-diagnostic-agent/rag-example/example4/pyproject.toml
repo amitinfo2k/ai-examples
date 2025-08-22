@@ -1,0 +1,48 @@
+[project]
+name = "gtp-packet-rag-analysis"
+version = "1.0.0"
+description = "GTP Packet Analysis using RAG with Google Gemini AI"
+authors = [
+    {name = "AI Examples", email = "example@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "scapy>=2.5.0",
+    "langchain-google-genai>=0.1.0",
+    "langchain-community>=0.2.0",
+    "langchain-text-splitters>=0.2.0",
+    "langchain>=0.2.0",
+    "chromadb>=0.4.0",
+    "pysqlite3-binary>=0.5.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "argparse",
+    "json5>=0.9.0",
+    "rich>=13.0.0",
+    "tabulate>=0.9.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
