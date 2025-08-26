@@ -19,7 +19,8 @@ def process_pcap(
     pcap_processor: PCAPProcessor,
     embedder: EmbeddingGenerator,
     vector_store: VectorStore,
-    base_dir: str = ""
+    base_dir: str = "",
+    feature_weight: float = 0.8
 ) -> Dict[str, Any]:
     """
     Process a single PCAP file and add its embedding to the vector store.
@@ -50,10 +51,10 @@ def process_pcap(
         # Generate description embedding
         description_embedding = embedder.generate_embedding(config.description)
         
-        # Combine embeddings (simple average)
-        combined_embedding = (
-            np.array(feature_embedding) + np.array(description_embedding)
-        ) / 2.0
+        # Combine embeddings with weighting so features dominate over description
+        fw = float(max(0.0, min(1.0, feature_weight)))
+        dw = 1.0 - fw
+        combined_embedding = (np.array(feature_embedding) * fw) + (np.array(description_embedding) * dw)
         
         # Prepare metadata
         metadata = {
@@ -64,6 +65,7 @@ def process_pcap(
             'key_patterns': config.key_patterns,
             'features': features,
             'feature_text': feature_text,
+            'feature_weight': fw,
         }
         
         # Add to vector store
@@ -92,6 +94,8 @@ def main():
                        help='Output path for the FAISS index')
     parser.add_argument('--base-dir', type=str, default='',
                        help='Base directory for PCAP file paths')
+    parser.add_argument('--feature-weight', type=float, default=0.8,
+                       help='Weight for PCAP features vs description (0..1). 1.0 = features only')
     
     args = parser.parse_args()
     
@@ -117,7 +121,8 @@ def main():
             pcap_processor=pcap_processor,
             embedder=embedder,
             vector_store=vector_store,
-            base_dir=args.base_dir
+            base_dir=args.base_dir,
+            feature_weight=args.feature_weight
         )
         results.append(result)
     

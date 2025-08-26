@@ -80,12 +80,42 @@ class EmbeddingGenerator:
         
         # Add protocol-specific information
         if features.get('gtp_packets', 0) > 0:
-            parts.append(f"GTP packets: {features['gtp_packets']}")
-            parts.append(f"GTP TEIDs: {len(features.get('gtp_teids', []))} unique")
+            gtp_info = [f"GTP packets: {features['gtp_packets']}"]
+            if features.get('gtp_teids'):
+                gtp_info.append(f"TEIDs: {len(features['gtp_teids'])} unique")
+            if features.get('gtp_inner_protocols'):
+                protocol_names = {1: 'ICMP', 6: 'TCP', 17: 'UDP'}
+                named_protocols = [f"{p}:{protocol_names.get(int(p), 'Unknown')}" for p in sorted(features.get('gtp_inner_protocols', []))]
+                gtp_info.append(f"inner protocols: {', '.join(named_protocols)}")
+            if features.get('gtp_icmp_packets', 0) > 0:
+                gtp_info.append(f"ICMP: {features['gtp_icmp_packets']}")
+            if features.get('gtp_non_icmp_packets', 0) > 0:
+                gtp_info.append(f"non-ICMP: {features['gtp_non_icmp_packets']}")
+            parts.append(" | ".join(gtp_info))
             
         if features.get('pfcp_packets', 0) > 0:
-            parts.append(f"PFCP packets: {features['pfcp_packets']}")
-            
+            pfcp_info = [f"PFCP packets: {features['pfcp_packets']}"]
+            if features.get('pfcp_message_types'):
+                type_list = sorted(features.get('pfcp_message_types', []))
+                type_name_map = {
+                    50: 'Session Est Req', 51: 'Session Est Resp',
+                    52: 'Session Mod Req', 53: 'Session Mod Resp',
+                    54: 'Session Del Req', 55: 'Session Del Resp',
+                    1: 'Heartbeat Req', 2: 'Heartbeat Resp',
+                    5: 'Assoc Setup Req', 6: 'Assoc Setup Resp',
+                }
+                named = [f"{t}:{type_name_map.get(int(t), 'Unknown')}" for t in type_list]
+                pfcp_info.append(f"types: {', '.join(named)}")
+            if features.get('pfcp_cause_codes'):
+                cause_names = {73: 'Rule creation/modification Failure'}
+                named_causes = [f"{c}:{cause_names.get(int(c), 'Unknown')}" for c in sorted(features.get('pfcp_cause_codes', []))]
+                pfcp_info.append(f"causes: {', '.join(named_causes)}")
+            if features.get('pfcp_session_establishment_failed'):
+                pfcp_info.append("session establishment: FAILED")
+            if features.get('pfcp_heartbeat_only'):
+                pfcp_info.append("HEARTBEAT ONLY")
+            parts.append(" | ".join(pfcp_info))
+        
         if features.get('ngap_packets', 0) > 0:
             parts.append(f"NGAP packets: {features['ngap_packets']}")
         
@@ -97,5 +127,12 @@ class EmbeddingGenerator:
         if features.get('udp_ports'):
             parts.append(f"UDP ports: {', '.join(map(str, sorted(features['udp_ports'])[:10]))}" + 
                         ("..." if len(features['udp_ports']) > 10 else ""))
+        
+        # ICMP echo stats to distinguish downlink failures
+        if features.get('protocol_counts', {}).get('ICMP', 0) > 0:
+            parts.append(
+                f"ICMP echo req/reply: {features.get('icmp_echo_request_count', 0)}/" \
+                f"{features.get('icmp_echo_reply_count', 0)}"
+            )
         
         return ". ".join(parts)
