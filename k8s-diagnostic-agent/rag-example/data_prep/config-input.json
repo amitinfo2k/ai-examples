@@ -1,0 +1,18 @@
+{
+    "input": [
+        {
+            "file": "upf-success-gtp.pcap",
+            "label": 0,
+            "issue_type": "Success",
+            "description": "UPF is scucessfully processing the uplink and downlink data",
+            "key_patterns": ["ICMPRequest","ICMPReply"]
+        },
+        {
+            "file": "upf-failure-gtp.pcap",
+            "label": 1,
+            "issue_type": "Downlink issue",
+            "description": "Downling routing issue",
+            "key_patterns": ["ICMPRequest","DownlinkFailure" ]
+        }
+    ]
+}
