@@ -1,18 +1,32 @@
 {
     "input": [
         {
-            "file": "upf-success-gtp.pcap",
-            "label": 0,
-            "issue_type": "Success",
-            "description": "UPF is scucessfully processing the uplink and downlink data",
-            "key_patterns": ["ICMPRequest","ICMPReply"]
-        },
-        {
-            "file": "upf-failure-gtp.pcap",
+            "file": "free5c_upf_aman_smf.pcap",
             "label": 1,
             "issue_type": "Downlink issue",
-            "description": "Downling routing issue",
-            "key_patterns": ["ICMPRequest","DownlinkFailure" ]
+            "description": "PFCP session established but no downlink GTP-U ICMP reply delivered. Uplink echo request present; suggests issue on downlink data plane or return path despite control-plane OK.",
+            "key_patterns": ["ICMPRequest", "NoICMPReply", "DownlinkFailure", "GTPU", "PFCPSessionEstablished", "ReturnPathProblem"]
+        },
+        {
+            "file": "0620_02.pcap",
+            "label": 1,
+            "issue_type": "PFCP Session establishment failure",
+            "description": "PFCP Association success, but PFCP Session Establishment Response indicates failure. Cause: Rule creation/modification failure; Error Report present; Failed Rule ID: PDR 1. Indicates control-plane session setup problem despite association OK.",
+            "key_patterns": ["PFCP", "PFCPAssociationSuccess", "PFCPSessionEstablishmentFailure", "CauseRuleCreationModificationFailure", "FailedRuleIDPDR1"]
+        },
+        {
+            "file": "upf-icmp-working.pcap",
+            "label": 0,
+            "issue_type": "Success",
+            "description": "Baseline capture: UPF successfully forwards ICMP echo request/reply over GTP-U. No PFCP packets present in this trace; data-plane forwarding is healthy with no loss.",
+            "key_patterns": ["ICMPRequest", "ICMPReply", "GTPU", "UplinkOK", "DownlinkOK"]
+        },
+        {
+            "file": "sample.pcap",
+            "label": 1,
+            "issue_type": "Downlink issue",
+            "description": "Downlink routing failure: ICMP echo request observed uplink but no corresponding ICMP reply on downlink. Indicates return path/routing or N6→N3 translation issue.",
+            "key_patterns": ["ICMPRequest", "NoICMPReply", "DownlinkFailure", "RoutingIssue", "ReturnPathProblem"]
         }
     ]
 }

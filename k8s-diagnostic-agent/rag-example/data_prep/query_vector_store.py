@@ -50,6 +50,9 @@ def main() -> int:
     parser.add_argument("--top-k", type=int, default=5, help="Number of nearest results to return (default: 5)")
     parser.add_argument("--model", type=str, default="all-MiniLM-L6-v2", help="SentenceTransformer model name (default: all-MiniLM-L6-v2)")
     parser.add_argument("--json", action="store_true", help="Output raw JSON results")
+    parser.add_argument("--debug", action="store_true", help="Print debug info like feature text")
+    parser.add_argument("--feature-weight", type=float, default=0.8,
+                       help="Weight for PCAP features vs description (0..1). 1.0 = features only")
 
     args = parser.parse_args()
 
@@ -72,13 +75,16 @@ def main() -> int:
 
         if args.description:
             description_embedding = embedder.generate_embedding(args.description)
-            query_embedding = (
-                np.array(feature_embedding) + np.array(description_embedding)
-            ) / 2.0
+            fw = float(max(0.0, min(1.0, args.feature_weight)))
+            dw = 1.0 - fw
+            query_embedding = (np.array(feature_embedding) * fw) + (np.array(description_embedding) * dw)
         else:
             query_embedding = np.array(feature_embedding)
         query_embedding = query_embedding.tolist()
         query_label = args.pcap
+        if args.debug:
+            print("\n[DEBUG] Query feature_text:")
+            print(feature_text)
 
     # Search
     results = store.search(query_embedding, k=args.top_k)
@@ -98,6 +104,32 @@ def main() -> int:
     print(f"Top {min(args.top_k, len(results))} results for query: {query_label}")
     for rank, (metadata, distance) in enumerate(results, start=1):
         print(f"{rank}. distance={distance:.4f} | {format_result(metadata)}")
+        if args.debug and 'feature_text' in metadata:
+            print("    [DEBUG] matched feature_text:")
+            print("    " + metadata['feature_text'])
+    
+    # Analysis and prediction
+    if results:
+        top_result = results[0]
+        top_metadata, top_distance = top_result
+        
+        # Determine success/failure based on top match
+        if top_metadata.get('label') == 0:
+            status = "SUCCESS"
+            confidence = "High" if top_distance < 0.3 else "Medium" if top_distance < 0.5 else "Low"
+        else:
+            status = "FAILURE"
+            confidence = "High" if top_distance < 0.3 else "Medium" if top_distance < 0.5 else "Low"
+        
+        print(f"\n=== ANALYSIS RESULT ===")
+        print(f"Status: {status}")
+        print(f"Confidence: {confidence}")
+        print(f"Issue Type: {top_metadata.get('issue_type', 'Unknown')}")
+        print(f"Top Match: {top_metadata.get('file', 'Unknown')}")
+        print(f"Distance Score: {top_distance:.4f}")
+        
+        if top_distance > 0.5:
+            print("⚠️  Warning: Low confidence - consider reviewing manually")
 
     return 0
 
