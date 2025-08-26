@@ -71,6 +71,35 @@ python3 -m data_prep.process_pcaps --config data_prep/config-input.json --output
 - **Console Output**: Processing summary with success/error counts
 - **Metadata**: Stored with each embedding for retrieval
 
+## Query the Vector Store
+
+Run queries against the generated FAISS index using text or a PCAP file.
+
+### A) Text Query (recommended quick check)
+
+```bash
+cd k8s-diagnostic-agent/rag-example
+python3 -m data_prep.query_vector_store \
+  --index data_prep/vector_store.faiss \
+  --query "UPF downlink routing issue ICMP request without reply" \
+  --top-k 5
+```
+
+### B) PCAP Query (feature-based, optional description fusion)
+
+```bash
+cd k8s-diagnostic-agent/rag-example
+python3 -m data_prep.query_vector_store \
+  --index data_prep/vector_store.faiss \
+  --pcap /path/to/new_capture.pcap \
+  --description "Observed downlink failure after ICMP request" \
+  --top-k 5
+```
+
+Notes:
+- Lower distance = more similar. Use the top-1 `label` as predicted class (0=success, 1=failure).
+- Add `--json` to get raw JSON output; use `--model` to override the embedding model.
+
 ## Components
 
 - **PCAPProcessor**: Extracts features from PCAP files
