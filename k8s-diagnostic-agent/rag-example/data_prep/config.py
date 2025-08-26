@@ -1,4 +1,4 @@
-""
+"""
 Configuration loader for the data preparation module.
 Handles loading and validating the configuration from JSON files.
 """
