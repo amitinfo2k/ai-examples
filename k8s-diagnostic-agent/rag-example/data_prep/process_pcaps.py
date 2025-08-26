@@ -4,6 +4,7 @@ Main script for processing PCAP files and generating embeddings.
 import os
 import json
 import argparse
+import numpy as np
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
