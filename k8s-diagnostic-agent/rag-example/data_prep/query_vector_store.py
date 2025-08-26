@@ -51,6 +51,8 @@ def main() -> int:
     parser.add_argument("--model", type=str, default="all-MiniLM-L6-v2", help="SentenceTransformer model name (default: all-MiniLM-L6-v2)")
     parser.add_argument("--json", action="store_true", help="Output raw JSON results")
     parser.add_argument("--debug", action="store_true", help="Print debug info like feature text")
+    parser.add_argument("--feature-weight", type=float, default=0.8,
+                       help="Weight for PCAP features vs description (0..1). 1.0 = features only")
 
     args = parser.parse_args()
 
@@ -73,9 +75,9 @@ def main() -> int:
 
         if args.description:
             description_embedding = embedder.generate_embedding(args.description)
-            query_embedding = (
-                np.array(feature_embedding) + np.array(description_embedding)
-            ) / 2.0
+            fw = float(max(0.0, min(1.0, args.feature_weight)))
+            dw = 1.0 - fw
+            query_embedding = (np.array(feature_embedding) * fw) + (np.array(description_embedding) * dw)
         else:
             query_embedding = np.array(feature_embedding)
         query_embedding = query_embedding.tolist()
