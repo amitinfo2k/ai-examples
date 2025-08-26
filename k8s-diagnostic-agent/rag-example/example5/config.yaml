@@ -1,0 +1,37 @@
+# Configuration for 5G PCAP Analysis Tool
+
+# Paths
+data:
+  raw_pcaps: "data/raw_pcaps"
+  processed: "data/processed"
+  embeddings: "data/embeddings"
+  models: "models"
+  results: "results"
+
+# Feature extraction
+features:
+  protocols: ["TCP", "UDP", "SCTP","NGAP", "GTP", "PFCP"]
+  timing_windows: [1.0, 5.0, 10.0]  # seconds
+  min_packet_size: 64  # bytes
+  max_packet_size: 9000  # bytes
+
+# Model training
+training:
+  test_size: 0.2
+  random_state: 42
+  n_estimators: 100
+  max_depth: 10
+  class_weight: "balanced"
+
+# RAG settings
+rag:
+  embedding_model: "all-MiniLM-L6-v2"
+  top_k_similar: 3
+  similarity_threshold: 0.7
+
+# Logging
+logging:
+  level: "INFO"
+  file: "pcap_analyzer.log"
+  max_size: 10485760  # 10MB
+  backup_count: 5
