@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import csv
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import numpy as np
@@ -12,15 +13,23 @@ from tqdm import tqdm
 class PCAPProcessor:
     """Process PCAP files to extract features and generate embeddings for RAG."""
     
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, mapping_file: str = None):
         """Initialize the PCAP processor with configuration.
         
         Args:
             config: Dictionary containing configuration parameters
+            mapping_file: Path to CSV file mapping PCAP filenames to labels
         """
-        self.config = config
+        self.label_map = {}       
+        self.config = config    
         self.logger = logging.getLogger(__name__)
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        if mapping_file and os.path.exists(mapping_file):
+            self.logger.info(f"Loading label mapping from {mapping_file}")
+            self._load_label_mapping(mapping_file)
+        else:
+            self.logger.warning(f"Mapping file not found: {mapping_file}. Processing without labels.")
+            mapping_file = None    
         
     def process_pcap(self, pcap_path: str) -> Dict:
         """Process a single PCAP file and extract features.
@@ -119,6 +128,41 @@ class PCAPProcessor:
         
         return " ".join(desc)
     
+    def _load_label_mapping(self, mapping_file: str) -> None:
+        """Load label mapping from CSV file.
+        
+        Args:
+            mapping_file: Path to CSV file with 'filename,label' format
+        """
+        try:
+            self.logger.info(f"Loading label mapping from {mapping_file}")
+            with open(mapping_file, 'r') as f:
+                # Read all lines and strip whitespace
+                lines = [line.strip() for line in f.readlines() if line.strip()]
+                
+                for line in lines:
+                    # Split on comma and strip whitespace from each part
+                    parts = [part.strip() for part in line.split(',') if part.strip()]
+                    if len(parts) >= 2:  # Ensure we have both filename and label
+                        filename = parts[0]
+                        label = parts[1]
+                        self.label_map[filename] = label
+                        self.logger.debug(f"Mapped '{filename}' to label: {label}")
+                    
+            self.logger.info(f"Successfully loaded {len(self.label_map)} label mappings from {mapping_file}")
+            
+            # Debug: Log the loaded mappings
+            if self.label_map:
+                self.logger.debug("Loaded mappings:")
+                for filename, label in self.label_map.items():
+                    self.logger.debug(f"  {filename} -> {label}")
+            else:
+                self.logger.warning("No label mappings were loaded from the file")
+                
+        except Exception as e:
+            self.logger.error(f"Failed to load label mapping from {mapping_file}: {str(e)}")
+            self.label_map = {}
+    
     def process_directory(self, input_dir: str, output_file: str) -> None:
         """Process all PCAPs in a directory and save features to a file.
         
@@ -135,6 +179,14 @@ class PCAPProcessor:
         for pcap_file in tqdm(pcap_files, desc="Processing PCAPs"):
             try:
                 features = self.process_pcap(str(pcap_file))
+                # Add label if mapping exists
+                pcap_name = pcap_file.name
+                if pcap_name in self.label_map:
+                    features['label'] = self.label_map[pcap_name]
+                    self.logger.debug(f"Assigned label '{features['label']}' to {pcap_name}")
+                else:
+                    self.logger.warning(f"No label mapping found for {pcap_name}")
+                    features['label'] = 'unknown'
                 results.append(features)
             except Exception as e:
                 self.logger.error(f"Failed to process {pcap_file}: {str(e)}")

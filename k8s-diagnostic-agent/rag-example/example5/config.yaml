@@ -3,6 +3,7 @@
 # Paths
 data:
   raw_pcaps: "data/raw_pcaps"
+  mapping: "data/mapping.csv"
   processed: "data/processed"
   embeddings: "data/embeddings"
   models: "models"

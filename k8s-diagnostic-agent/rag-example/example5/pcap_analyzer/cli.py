@@ -65,15 +65,18 @@ class PCAPAnalyzerCLI:
         for dir_path in dirs:
             os.makedirs(dir_path, exist_ok=True)
     
-    def process_pcaps(self, input_dir: str, output_file: str) -> None:
+    def process_pcaps(self, input_dir: str, output_file: str, mapping_file: str = None) -> None:
         """Process PCAP files and extract features.
         
         Args:
             input_dir: Directory containing PCAP files
             output_file: Path to save processed features
+            mapping_file: Optional path to CSV file mapping PCAP filenames to labels
         """
         logger.info(f"Processing PCAPs from {input_dir}")
-        processor = PCAPProcessor(self.config)
+        
+                
+        processor = PCAPProcessor(self.config, mapping_file=mapping_file)
         processor.process_directory(input_dir, output_file)
     
     def train_model(self, features_file: str, output_dir: str) -> None:
@@ -182,8 +185,8 @@ def main():
     # Process command
     process_parser = subparsers.add_parser('process', help='Process PCAP files and extract features')
     process_parser.add_argument('input_dir', help='Directory containing PCAP files')
-    process_parser.add_argument('--output', '-o', default='features.json', 
-                              help='Output JSON file for extracted features')
+    process_parser.add_argument('--output', required=True, help='Path to save processed features')
+    process_parser.add_argument('--mapping', help='Path to CSV file mapping PCAP filenames to labels')
     
     # Train command
     train_parser = subparsers.add_parser('train', help='Train the classification model')
@@ -204,18 +207,19 @@ def main():
     if not args.command:
         parser.print_help()
         sys.exit(1)
-    
-    try:
-        cli = PCAPAnalyzerCLI()
         
-        if args.command == 'process':
-            cli.process_pcaps(args.input_dir, args.output)
-        elif args.command == 'train':
-            cli.train_model(args.features_file, args.output_dir)
-        elif args.command == 'predict':
-            cli.predict(args.pcap_file, args.model_dir, args.output)
-    except Exception as e:
-        logger.error(f"Error: {e}", exc_info=True)
+    if args.command == 'process':
+        cli = PCAPAnalyzerCLI()
+        cli.process_pcaps(args.input_dir, args.output, args.mapping)
+    elif args.command == 'train':
+        cli = PCAPAnalyzerCLI()
+        cli.train_model(args.features_file, args.output_dir)
+    elif args.command == 'predict':
+        cli = PCAPAnalyzerCLI()
+        result = cli.predict(args.pcap_file, args.model_dir, args.output)
+        cli._print_prediction(result)
+    else:
+        parser.print_help()
         sys.exit(1)
 
 if __name__ == "__main__":

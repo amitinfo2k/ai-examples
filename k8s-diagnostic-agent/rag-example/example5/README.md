@@ -86,7 +86,7 @@ The tool provides three main commands:
 Extract features from PCAP files in a directory:
 
 ```bash
-python -m pcap_analyzer.cli process data/raw_pcaps/ --output data/processed/features.json
+python -m pcap_analyzer.cli process data/raw_pcaps/ --output data/processed/features.json --mapping data/mapping.csv
 ```
 
 ### 2. Train the Model

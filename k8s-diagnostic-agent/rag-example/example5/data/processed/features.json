@@ -2,7 +2,6 @@
   {
     "pcap_name": "sample_upf_success.pcap",
     "total_packets": 6,
-    "label": "success",
     "protocol_counts": {
       "TCP": 0,
       "UDP": 2,
@@ -417,12 +416,12 @@
       0.1417083889245987,
       0.0374068059027195,
       0.0592869333922863
-    ]
+    ],
+    "label": "success"
   },
   {
     "pcap_name": "sample_upf_fail.pcap",
     "total_packets": 2,
-    "label": "failure",
     "protocol_counts": {
       "TCP": 0,
       "UDP": 2,
@@ -829,6 +828,7 @@
       0.14378206431865692,
       0.02383243851363659,
       0.06085551530122757
-    ]
+    ],
+    "label": "failure"
   }
 ]
