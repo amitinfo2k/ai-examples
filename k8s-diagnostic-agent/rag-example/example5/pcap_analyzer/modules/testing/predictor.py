@@ -201,15 +201,70 @@ class PCAPPredictor:
                 'message': f"Found {features['error_count']} potential error(s) in the PCAP."
             })
         
-        # Protocol indicators
-        if features['protocol_counts']['SCTP'] == 0 and features['ngap_message_count'] == 0:
+        # PFCP indicators (N4 control plane)
+        if features.get('pfcp_packets', 0) > 0:
+            # Message types / causes
+            pfcp_types = features.get('pfcp_message_types', [])
+            pfcp_causes = features.get('pfcp_cause_codes', [])
+            if pfcp_types:
+                indicators.append({
+                    'type': 'info',
+                    'message': f"PFCP observed: message_types={pfcp_types}"
+                })
+            if pfcp_causes:
+                indicators.append({
+                    'type': 'info',
+                    'message': f"PFCP causes present: {pfcp_causes}"
+                })
+            if features.get('pfcp_session_establishment_failed'):
+                indicators.append({
+                    'type': 'warning',
+                    'message': "PFCP Session Establishment Response indicates FAILURE (e.g., cause 73)."
+                })
+            if features.get('pfcp_session_deletion_failed'):
+                indicators.append({
+                    'type': 'warning',
+                    'message': "PFCP Session Deletion Response indicates FAILURE (e.g., cause 65: Session context not found)."
+                })
+            if features.get('pfcp_heartbeat_only'):
+                indicators.append({
+                    'type': 'info',
+                    'message': "PFCP heartbeat-only traffic detected (no session procedures)."
+                })
+        
+        # GTP-U indicators (user plane)
+        if features.get('gtp_packets', 0) > 0:
+            inner = features.get('gtp_inner_protocols', [])
+            indicators.append({
+                'type': 'info',
+                'message': f"GTP-U observed: inner_protocols={inner}, icmp_in_gtp={features.get('gtp_icmp_packets', 0)}"
+            })
+            # Highlight missing ICMP replies inside GTP-U
+            if 1 in inner:
+                req = int(features.get('icmp_echo_request_count', 0))
+                rep = int(features.get('icmp_echo_reply_count', 0))
+                if req > rep:
+                    missing = req - rep
+                    indicators.append({
+                        'type': 'warning',
+                        'message': f"ICMP echo replies missing in GTP-U: {missing} unmatched request(s). Possible downlink path or return routing issue."
+                    })
+                elif req == 0 and features.get('gtp_icmp_packets', 0) > 0:
+                    indicators.append({
+                        'type': 'info',
+                        'message': "ICMP seen in GTP-U but no echo requests counted (non-echo ICMP or parsing edge case)."
+                    })
+        
+        # Protocol indicators for NGAP (only if no PFCP/GTP present)
+        has_pfcp_or_gtp = features.get('pfcp_packets', 0) > 0 or features.get('gtp_packets', 0) > 0
+        if not has_pfcp_or_gtp and features['protocol_counts']['SCTP'] == 0 and features['ngap_message_count'] == 0:
             indicators.append({
                 'type': 'info',
                 'message': "No SCTP traffic or NGAP messages detected. This might not be 5G control plane traffic."
             })
         
         # Timing indicators
-        if features['avg_timing'] > 1.0:  # More than 1 second average delay
+        if features.get('avg_timing', 0) > 1.0:  # More than 1 second average delay
             indicators.append({
                 'type': 'warning',
                 'message': f"High average inter-packet delay: {features['avg_timing']:.2f}s"
