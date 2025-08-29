@@ -10,6 +10,7 @@ import faiss
 from sentence_transformers import SentenceTransformer
 
 from ..data_prep.pcap_processor import PCAPProcessor
+from ..data_prep.pfcp_cause_codes import get_pfcp_cause_analyzer
 
 class PCAPPredictor:
     """Classify new PCAP files and provide explanations using RAG."""
@@ -38,6 +39,9 @@ class PCAPPredictor:
         
         # Initialize PCAP processor
         self.pcap_processor = PCAPProcessor(config)
+        
+        # Initialize PFCP cause analyzer
+        self.pfcp_analyzer = get_pfcp_cause_analyzer()
     
     def predict(self, pcap_path: str) -> Dict[str, Any]:
         """Classify a PCAP file and provide explanation.
@@ -212,19 +216,42 @@ class PCAPPredictor:
                     'message': f"PFCP observed: message_types={pfcp_types}"
                 })
             if pfcp_causes:
+                # Use comprehensive cause code analysis
+                cause_analysis = self.pfcp_analyzer.analyze_cause_codes(pfcp_causes)
+                cause_summary = self.pfcp_analyzer.get_cause_summary_text(pfcp_causes)
+                
                 indicators.append({
-                    'type': 'info',
-                    'message': f"PFCP causes present: {pfcp_causes}"
+                    'type': cause_analysis['severity'],
+                    'message': f"PFCP causes: {cause_summary}"
                 })
+                
+                # Add specific insights from cause analysis
+                for insight in cause_analysis['insights']:
+                    indicators.append({
+                        'type': cause_analysis['severity'],
+                        'message': f"PFCP Analysis: {insight}"
+                    })
+            
+            # Enhanced failure detection
             if features.get('pfcp_session_establishment_failed'):
                 indicators.append({
                     'type': 'warning',
-                    'message': "PFCP Session Establishment Response indicates FAILURE (e.g., cause 73)."
+                    'message': "PFCP Session Establishment Response indicates FAILURE"
+                })
+            if features.get('pfcp_session_modification_failed'):
+                indicators.append({
+                    'type': 'warning',
+                    'message': "PFCP Session Modification Response indicates FAILURE"
                 })
             if features.get('pfcp_session_deletion_failed'):
                 indicators.append({
                     'type': 'warning',
-                    'message': "PFCP Session Deletion Response indicates FAILURE (e.g., cause 65: Session context not found)."
+                    'message': "PFCP Session Deletion Response indicates FAILURE"
+                })
+            if features.get('pfcp_session_report_failed'):
+                indicators.append({
+                    'type': 'warning',
+                    'message': "PFCP Session Report Response indicates FAILURE"
                 })
             if features.get('pfcp_heartbeat_only'):
                 indicators.append({

@@ -9,6 +9,7 @@ from sentence_transformers import SentenceTransformer
 import pandas as pd
 from tqdm import tqdm
 from scapy.contrib.gtp import GTP_U_Header
+from .pfcp_cause_codes import get_pfcp_cause_analyzer
 
 class PCAPProcessor:
     """Process PCAP files to extract features and generate embeddings for RAG."""
@@ -24,6 +25,7 @@ class PCAPProcessor:
         self.config = config    
         self.logger = logging.getLogger(__name__)
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.pfcp_analyzer = get_pfcp_cause_analyzer()
         if mapping_file and os.path.exists(mapping_file):
             self.logger.info(f"Loading label mapping from {mapping_file}")
             self._load_label_mapping(mapping_file)
@@ -65,7 +67,9 @@ class PCAPProcessor:
                 'pfcp_message_types': set(),   # numeric types (e.g., 1,2,50,51,...)
                 'pfcp_cause_codes': set(),
                 'pfcp_session_establishment_failed': False,
+                'pfcp_session_modification_failed': False,
                 'pfcp_session_deletion_failed': False,
+                'pfcp_session_report_failed': False,
                 'pfcp_heartbeat_only': False,
             }
             
@@ -152,11 +156,16 @@ class PCAPProcessor:
                                                 if idx + 4 < len(payload_bytes):
                                                     cause_val = int(payload_bytes[idx+4])
                                                     features['pfcp_cause_codes'].add(cause_val)
-                                                    # Flag specific failures
-                                                    if pfcp_msg_type == 51 and cause_val == 73:
-                                                        features['pfcp_session_establishment_failed'] = True
-                                                    elif pfcp_msg_type == 55 and cause_val == 65:
-                                                        features['pfcp_session_deletion_failed'] = True
+                                                    # Enhanced failure detection using comprehensive cause code analysis
+                                                    if self.pfcp_analyzer.is_rejection_cause(cause_val):
+                                                        if pfcp_msg_type == 51:  # Session Establishment Response
+                                                            features['pfcp_session_establishment_failed'] = True
+                                                        elif pfcp_msg_type == 53:  # Session Modification Response
+                                                            features['pfcp_session_modification_failed'] = True
+                                                        elif pfcp_msg_type == 55:  # Session Deletion Response
+                                                            features['pfcp_session_deletion_failed'] = True
+                                                        elif pfcp_msg_type == 57:  # Session Report Response
+                                                            features['pfcp_session_report_failed'] = True
                                                 break
                                             idx += 1
                             except Exception:
@@ -269,12 +278,17 @@ class PCAPProcessor:
                 parts.append("types=" + ", ".join([f"{t}:{type_map.get(int(t), 'Unknown')}" for t in types]))
             causes = sorted(list(features.get('pfcp_cause_codes', [])))
             if causes:
-                cause_map = {65:'Session context not found', 73:'Rule creation/modification Failure'}
-                parts.append("causes=" + ", ".join([f"{c}:{cause_map.get(int(c), 'Unknown')}" for c in causes]))
+                # Use comprehensive cause code analysis
+                cause_summary = self.pfcp_analyzer.get_cause_summary_text(causes)
+                parts.append(f"causes: {cause_summary}")
             if features.get('pfcp_session_establishment_failed'):
                 parts.append("session_establishment=FAILED")
+            if features.get('pfcp_session_modification_failed'):
+                parts.append("session_modification=FAILED")
             if features.get('pfcp_session_deletion_failed'):
                 parts.append("session_deletion=FAILED")
+            if features.get('pfcp_session_report_failed'):
+                parts.append("session_report=FAILED")
             if features.get('pfcp_heartbeat_only'):
                 parts.append("heartbeat_only")
             desc.append("; ".join(parts))

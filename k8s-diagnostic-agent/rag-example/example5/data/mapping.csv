@@ -3,3 +3,4 @@ sample_upf_success.pcap,success
 upf_pfcp_establishment_success.pcap,success
 upf_pfcp_establishment_failure.pcap,failure
 upf_smf_teid_not_found.pcap,failure
+pfcp_heartbeat_success.pcap,success
