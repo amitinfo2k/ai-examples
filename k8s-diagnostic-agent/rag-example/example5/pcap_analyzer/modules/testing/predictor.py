@@ -282,12 +282,145 @@ class PCAPPredictor:
                         'message': "ICMP seen in GTP-U but no echo requests counted (non-echo ICMP or parsing edge case)."
                     })
         
+        # Enhanced NGAP indicators (5G control plane)
+        if features.get('ngap_message_count', 0) > 0:
+            # Procedure types
+            if features.get('ngap_procedure_types'):
+                procedures = [str(proc) for proc in features['ngap_procedure_types']]
+                indicators.append({
+                    'type': 'info',
+                    'message': f"NGAP procedures detected: {', '.join(procedures)}"
+                })
+            
+            # Registration status
+            if features.get('ngap_registration_status'):
+                status = features['ngap_registration_status']
+                if status == 'success':
+                    indicators.append({
+                        'type': 'success',
+                        'message': f"NGAP registration completed successfully"
+                    })
+                elif status == 'failed':
+                    indicators.append({
+                        'type': 'error',
+                        'message': f"NGAP registration failed"
+                    })
+                elif status == 'partial':
+                    indicators.append({
+                        'type': 'warning',
+                        'message': f"NGAP registration partially completed - may indicate incomplete procedure"
+                    })
+            
+            # Authentication and security steps
+            auth_steps = len(features.get('ngap_authentication_steps', []))
+            security_steps = len(features.get('ngap_security_steps', []))
+            if auth_steps > 0:
+                indicators.append({
+                    'type': 'info',
+                    'message': f"NGAP authentication steps: {auth_steps} completed"
+                })
+            if security_steps > 0:
+                indicators.append({
+                    'type': 'info',
+                    'message': f"NGAP security setup steps: {security_steps} completed"
+                })
+            
+            # Cause codes for failures
+            if features.get('ngap_cause_codes'):
+                causes = [str(cause) for cause in features['ngap_cause_codes']]
+                indicators.append({
+                    'type': 'error',
+                    'message': f"NGAP failure cause codes: {', '.join(causes)}"
+                })
+        
         # Protocol indicators for NGAP (only if no PFCP/GTP present)
         has_pfcp_or_gtp = features.get('pfcp_packets', 0) > 0 or features.get('gtp_packets', 0) > 0
         if not has_pfcp_or_gtp and features['protocol_counts']['SCTP'] == 0 and features['ngap_message_count'] == 0:
             indicators.append({
                 'type': 'info',
                 'message': "No SCTP traffic or NGAP messages detected. This might not be 5G control plane traffic."
+            })
+        
+        # Enhanced failure pattern indicators
+        if features.get('has_failures'):
+            if features.get('failure_patterns'):
+                patterns = features['failure_patterns']
+                indicators.append({
+                    'type': 'error',
+                    'message': f"Failure patterns detected: {', '.join(patterns)}"
+                })
+            
+            if features.get('failure_scenarios'):
+                scenarios = features['failure_scenarios']
+                indicators.append({
+                    'type': 'error',
+                    'message': f"Failure scenarios: {', '.join(scenarios)}"
+                })
+            
+            if features.get('root_cause_indicators'):
+                root_causes = features['root_cause_indicators']
+                indicators.append({
+                    'type': 'error',
+                    'message': f"Root cause indicators: {', '.join(root_causes)}"
+                })
+        
+        # Enhanced timing and sequence indicators
+        if features.get('timing_anomalies'):
+            anomaly_count = len(features['timing_anomalies'])
+            indicators.append({
+                'type': 'warning',
+                'message': f"Timing anomalies detected: {anomaly_count} unusual delays"
+            })
+        
+        if features.get('sequence_anomalies'):
+            seq_count = len(features['sequence_anomalies'])
+            indicators.append({
+                'type': 'warning',
+                'message': f"Sequence anomalies detected: {seq_count} out-of-order packets"
+            })
+        
+        if features.get('retransmission_patterns'):
+            retrans_count = len(features['retransmission_patterns'])
+            indicators.append({
+                'type': 'warning',
+                'message': f"Retransmission indicators: {retrans_count} potential retransmissions"
+            })
+        
+        # Enhanced PFCP indicators
+        if features.get('pfcp_association_status'):
+            status = features['pfcp_association_status']
+            if status == 'failed':
+                indicators.append({
+                    'type': 'error',
+                    'message': "PFCP association failed"
+                })
+            elif status == 'established':
+                indicators.append({
+                    'type': 'success',
+                    'message': "PFCP association established successfully"
+                })
+        
+        if features.get('pfcp_session_establishment_success_rate', 0) > 0:
+            rate = features['pfcp_session_establishment_success_rate']
+            if rate < 1.0:
+                indicators.append({
+                    'type': 'warning',
+                    'message': f"PFCP session establishment success rate: {rate:.2f} ({rate*100:.1f}%)"
+                })
+        
+        # Enhanced GTP indicators
+        if features.get('gtp_tunnel_count', 0) > 0:
+            indicators.append({
+                'type': 'info',
+                'message': f"GTP tunnels detected: {features['gtp_tunnel_count']} unique TEIDs"
+            })
+        
+        if features.get('gtp_user_plane_flows') and features.get('gtp_control_plane_messages'):
+            user_flows = len(features['gtp_user_plane_flows'])
+            control_msgs = len(features['gtp_control_plane_messages'])
+            indicators.append({
+                'type': 'info',
+                'message': f"GTP traffic: {user_flows} user plane flows, {control_msgs} control messages"
             })
         
         # Timing indicators
