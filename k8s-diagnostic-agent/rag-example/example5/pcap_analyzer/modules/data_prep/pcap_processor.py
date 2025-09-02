@@ -236,6 +236,26 @@ class PCAPProcessor:
                             if getattr(sctp, 'sport', None) == 38412 or getattr(sctp, 'dport', None) == 38412:
                                 # Enhanced NGAP message parsing
                                 ngap_info = self._parse_ngap_message(pkt, sctp, pkt_index)
+                                
+                                # Safety check: ensure ngap_info is not None
+                                if ngap_info is None:
+                                    ngap_info = {
+                                        'src_port': getattr(sctp, 'sport', None),
+                                        'dst_port': getattr(sctp, 'dport', None),
+                                        'length': len(sctp.payload) if hasattr(sctp, 'payload') else 0,
+                                        'procedure_code': None,
+                                        'message_type': None,
+                                        'amf_ue_ngap_id': None,
+                                        'ran_ue_ngap_id': None,
+                                        'cause_code': None,
+                                        'is_authentication': False,
+                                        'is_security': False,
+                                        'is_setup': False,
+                                        'is_ue_setup': False,
+                                        'is_gnb_setup': False,
+                                        'is_reject': False
+                                    }
+                                
                                 features['ngap_messages'].append(ngap_info)
                                 
                                 # Extract NGAP procedure and message types
@@ -263,11 +283,23 @@ class PCAPProcessor:
                         except Exception as e:
                             self.logger.debug(f"NGAP parsing error: {e}")
                             # Fallback to basic info
-                            features['ngap_messages'].append({
+                            ngap_info = {
                                 'src_port': getattr(sctp, 'sport', None),
                                 'dst_port': getattr(sctp, 'dport', None),
-                                'length': len(sctp.payload) if hasattr(sctp, 'payload') else 0
-                            })
+                                'length': len(sctp.payload) if hasattr(sctp, 'payload') else 0,
+                                'procedure_code': None,
+                                'message_type': None,
+                                'amf_ue_ngap_id': None,
+                                'ran_ue_ngap_id': None,
+                                'cause_code': None,
+                                'is_authentication': False,
+                                'is_security': False,
+                                'is_setup': False,
+                                'is_ue_setup': False,
+                                'is_gnb_setup': False,
+                                'is_reject': False
+                            }
+                            features['ngap_messages'].append(ngap_info)
                     # Avoid double-counting: skip outer ICMP if this packet is GTP-U (we count inner ICMP instead)
                     if ICMP in pkt and not (UDP in pkt and (pkt[UDP].sport == 2152 or pkt[UDP].dport == 2152)):
                         icmp_type = int(pkt[ICMP].type)
@@ -341,10 +373,23 @@ class PCAPProcessor:
         if features['ngap_message_count'] > 0:
             desc.append(f"Contains {features['ngap_message_count']} NGAP messages.")
             
-            # Add procedure types if available
+            # Add procedure types if available (show unique procedures with counts)
             if features.get('ngap_procedure_types'):
-                procedures = [self._get_procedure_name(proc) for proc in features['ngap_procedure_types']]
-                desc.append(f"NGAP procedures: {', '.join(procedures)}")
+                # Count unique procedures
+                procedure_counts = {}
+                for proc in features['ngap_procedure_types']:
+                    proc_name = self._get_procedure_name(proc)
+                    procedure_counts[proc_name] = procedure_counts.get(proc_name, 0) + 1
+                
+                # Format as "ProcedureName (count), ..."
+                procedure_summary = []
+                for proc_name, count in sorted(procedure_counts.items()):
+                    if count > 1:
+                        procedure_summary.append(f"{proc_name} ({count})")
+                    else:
+                        procedure_summary.append(proc_name)
+                
+                desc.append(f"NGAP procedures: {', '.join(procedure_summary)}")
             
             # Add registration status
             if features.get('ngap_registration_status'):
@@ -434,6 +479,19 @@ class PCAPProcessor:
                 desc.append(f"Failure scenarios: {', '.join(features['failure_scenarios'])}")
             if features.get('root_cause_indicators'):
                 desc.append(f"Root cause indicators: {', '.join(features['root_cause_indicators'])}")
+        
+        # Specific NGAP failure analysis
+        if features.get('ngap_message_count', 0) > 0:
+            if features.get('ngap_registration_status') == 'failed':
+                desc.append("NGAP_REGISTRATION_FAILED")
+            elif features.get('ngap_registration_status') == 'partial':
+                desc.append("NGAP_REGISTRATION_PARTIAL")
+            
+            # Check for specific Initial Context Setup failures
+            if features.get('protocol_handshake_completion', {}).get('ngap_initial_context_setup') == 'failed':
+                desc.append("NGAP_INITIAL_CONTEXT_SETUP_FAILED")
+            elif features.get('protocol_handshake_completion', {}).get('ngap_initial_context_setup') == 'incomplete':
+                desc.append("NGAP_INITIAL_CONTEXT_SETUP_INCOMPLETE")
         
         # Timing and sequence analysis
         if features.get('timing_anomalies'):
@@ -543,134 +601,242 @@ class PCAPProcessor:
                 'is_authentication': False,
                 'is_security': False,
                 'is_setup': False,
+                'is_ue_setup': False,
+                'is_gnb_setup': False,
                 'is_reject': False
             }
             
             # Parse NGAP payload if available
+            payload_bytes = b''
+            
+            # Try multiple ways to get the NGAP payload
             if hasattr(sctp, 'payload') and sctp.payload:
                 payload_bytes = bytes(sctp.payload)
+                self.logger.info(f"SCTP payload length: {len(payload_bytes)}")
+            
+            # If SCTP payload is empty, try Raw layer
+            if len(payload_bytes) == 0 and Raw in packet:
+                payload_bytes = bytes(packet[Raw].load)
+                self.logger.info(f"Raw payload length: {len(payload_bytes)}")
+            
+            # Debug logging for NGAP payload analysis
+            if len(payload_bytes) > 0:
+                self.logger.info(f"NGAP payload hex: {payload_bytes[:32].hex() if len(payload_bytes) >= 32 else payload_bytes.hex()}")
+            else:
+                self.logger.warning("No NGAP payload found in packet")
+            
+            # Enhanced NGAP parsing - try multiple parsing approaches
+            if len(payload_bytes) >= 2:
+                # Method 1: Look for NG Setup procedure codes first (21 = id-NGSetup)
+                for i in range(min(len(payload_bytes) - 1, 32)):  # Check first 32 bytes
+                    if i + 1 < len(payload_bytes):
+                        potential_proc = int.from_bytes(payload_bytes[i:i+2], 'big')
+                        if potential_proc == 21:  # id-NGSetup
+                            ngap_info['procedure_code'] = potential_proc
+                            if i + 2 < len(payload_bytes):
+                                ngap_info['message_type'] = payload_bytes[i + 2]
+                            self.logger.info(f"Found NG Setup procedure code {potential_proc} at position {i}")
+                            break
                 
-                # NGAP header is typically first 4 bytes
-                if len(payload_bytes) >= 4:
-                    # First byte: Protocol discriminator (should be 0x00 for NGAP)
+                # Method 2: Look for other NGAP procedure codes
+                if ngap_info['procedure_code'] is None:
+                    for i in range(min(len(payload_bytes) - 1, 16)):  # Check first 16 bytes
+                        if i + 1 < len(payload_bytes):
+                            potential_proc = int.from_bytes(payload_bytes[i:i+2], 'big')
+                            if potential_proc in [1, 2, 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]:
+                                ngap_info['procedure_code'] = potential_proc
+                                if i + 2 < len(payload_bytes):
+                                    ngap_info['message_type'] = payload_bytes[i + 2]
+                                break
+                
+                # Method 3: Standard NGAP format (Protocol Discriminator + Procedure Code + Message Type)
+                if ngap_info['procedure_code'] is None and len(payload_bytes) >= 4:
                     protocol_discriminator = payload_bytes[0]
                     if protocol_discriminator == 0x00:
-                        # Bytes 1-2: Procedure code (big endian)
                         procedure_code = int.from_bytes(payload_bytes[1:3], 'big')
+                        message_type = payload_bytes[3]
                         ngap_info['procedure_code'] = procedure_code
-                        
-                        # Byte 3: Message type (big endian)
-                        message_type = int.from_bytes(payload_bytes[3:4], 'big')
                         ngap_info['message_type'] = message_type
+                
+                # Method 4: Look for specific NGAP message patterns
+                if ngap_info['procedure_code'] is None:
+                    # Search for known NGAP message signatures
+                    for i in range(len(payload_bytes) - 3):
+                        # Look for Initial Context Setup patterns
+                        if (payload_bytes[i:i+2] == b'\x03\x00' or  # Initial Context Setup Request
+                            payload_bytes[i:i+2] == b'\x04\x00' or  # Initial Context Setup Response  
+                            payload_bytes[i:i+2] == b'\x05\x00'):   # Initial Context Setup Failure
+                            ngap_info['procedure_code'] = int.from_bytes(payload_bytes[i:i+2], 'big')
+                            if i + 2 < len(payload_bytes):
+                                ngap_info['message_type'] = payload_bytes[i + 2]
+                            break
+                
+                # Map procedure codes to meaningful names and categorize
+                if ngap_info['procedure_code'] is not None:
+                    procedure_names = {
+                        # Standard NGAP procedures (1-50)
+                        1: 'InitialUEMessage',
+                        2: 'DownlinkNASTransport',
+                        3: 'InitialContextSetupRequest',
+                        4: 'InitialContextSetupResponse',
+                        5: 'InitialContextSetupFailure',
+                        6: 'UERadioCapabilityInfoIndication',
+                        7: 'UERadioCapabilityCheckRequest',
+                        8: 'UERadioCapabilityCheckResponse',
+                        9: 'AuthenticationRequest',
+                        10: 'AuthenticationResponse',
+                        11: 'SecurityModeCommand',
+                        12: 'SecurityModeComplete',
+                        13: 'SecurityModeReject',
+                        14: 'RegistrationRequest',
+                        15: 'RegistrationAccept',
+                        16: 'RegistrationReject',
+                        17: 'RegistrationComplete',
+                        18: 'RegistrationFailure',
+                        19: 'DeregistrationRequest',
+                        20: 'DeregistrationAccept',
+                        21: 'DeregistrationRequest',
+                        22: 'DeregistrationAccept',
+                        23: 'ServiceRequest',
+                        24: 'ServiceAccept',
+                        25: 'ServiceReject',
+                        26: 'ServiceFailure',
+                        27: 'PDUSessionResourceSetupRequest',
+                        28: 'PDUSessionResourceSetupResponse',
+                        29: 'PDUSessionResourceSetupFailure',
+                        30: 'PDUSessionResourceModifyRequest',
+                        31: 'PDUSessionResourceModifyResponse',
+                        32: 'PDUSessionResourceModifyFailure',
+                        33: 'PDUSessionResourceReleaseRequest',
+                        34: 'PDUSessionResourceReleaseResponse',
+                        35: 'PDUSessionResourceReleaseFailure',
+                        36: 'PDUSessionResourceNotify',
+                        37: 'PDUSessionResourceNotifyResponse',
+                        38: 'PDUSessionResourceNotifyFailure',
+                        39: 'PDUSessionResourceModifyIndication',
+                        40: 'PDUSessionResourceModifyConfirm',
+                        41: 'PDUSessionResourceModifyIndicationFailure',
+                        42: 'PDUSessionResourceModifyIndicationResponse',
+                        43: 'PDUSessionResourceModifyIndicationFailure',
+                        44: 'PDUSessionResourceModifyIndicationResponse',
+                        45: 'PDUSessionResourceModifyIndicationFailure',
+                        46: 'PDUSessionResourceModifyIndicationResponse',
+                        47: 'PDUSessionResourceModifyIndicationFailure',
+                        48: 'PDUSessionResourceModifyIndicationResponse',
+                        49: 'PDUSessionResourceModifyIndicationFailure',
+                        50: 'PDUSessionResourceModifyIndicationResponse',
                         
-                        # Map procedure codes to meaningful names
-                        # Note: NGAP procedure codes are typically 2 bytes, but some implementations use different ranges
-                        procedure_names = {
-                            # Standard NGAP procedures (1-50)
-                            1: 'InitialUEMessage',
-                            2: 'DownlinkNASTransport',
-                            3: 'InitialContextSetupRequest',
-                            4: 'InitialContextSetupResponse',
-                            5: 'InitialContextSetupFailure',
-                            6: 'UERadioCapabilityInfoIndication',
-                            7: 'UERadioCapabilityCheckRequest',
-                            8: 'UERadioCapabilityCheckResponse',
-                            9: 'AuthenticationRequest',
-                            10: 'AuthenticationResponse',
-                            11: 'SecurityModeCommand',
-                            12: 'SecurityModeComplete',
-                            13: 'SecurityModeReject',
-                            14: 'RegistrationRequest',
-                            15: 'RegistrationAccept',
-                            16: 'RegistrationReject',
-                            17: 'RegistrationComplete',
-                            18: 'RegistrationFailure',
-                            19: 'DeregistrationRequest',
-                            20: 'DeregistrationAccept',
-                            21: 'DeregistrationRequest',
-                            22: 'DeregistrationAccept',
-                            23: 'ServiceRequest',
-                            24: 'ServiceAccept',
-                            25: 'ServiceReject',
-                            26: 'ServiceFailure',
-                            27: 'PDUSessionResourceSetupRequest',
-                            28: 'PDUSessionResourceSetupResponse',
-                            29: 'PDUSessionResourceSetupFailure',
-                            30: 'PDUSessionResourceModifyRequest',
-                            31: 'PDUSessionResourceModifyResponse',
-                            32: 'PDUSessionResourceModifyFailure',
-                            33: 'PDUSessionResourceReleaseRequest',
-                            34: 'PDUSessionResourceReleaseResponse',
-                            35: 'PDUSessionResourceReleaseFailure',
-                            36: 'PDUSessionResourceNotify',
-                            37: 'PDUSessionResourceNotifyResponse',
-                            38: 'PDUSessionResourceNotifyFailure',
-                            39: 'PDUSessionResourceModifyIndication',
-                            40: 'PDUSessionResourceModifyConfirm',
-                            41: 'PDUSessionResourceModifyIndicationFailure',
-                            42: 'PDUSessionResourceModifyIndicationResponse',
-                            43: 'PDUSessionResourceModifyIndicationFailure',
-                            44: 'PDUSessionResourceModifyIndicationResponse',
-                            45: 'PDUSessionResourceModifyIndicationFailure',
-                            46: 'PDUSessionResourceModifyIndicationResponse',
-                            47: 'PDUSessionResourceModifyIndicationFailure',
-                            48: 'PDUSessionResourceModifyIndicationResponse',
-                            49: 'PDUSessionResourceModifyIndicationFailure',
-                            50: 'PDUSessionResourceModifyIndicationResponse',
+                        # Extended ranges and vendor-specific codes
+                        21: 'NGSetupRequest',       # id-NGSetup (standard)
+                        768: 'NGSetupRequest',      # Common vendor implementation
+                        769: 'NGSetupResponse',     # Common vendor implementation
+                        770: 'NGSetupFailure',      # Common vendor implementation
+                        771: 'InitialUEMessage',    # Alternative encoding
+                        772: 'DownlinkNASTransport', # Alternative encoding
+                        773: 'InitialContextSetupRequest', # Alternative encoding
+                        774: 'InitialContextSetupResponse', # Alternative encoding
+                        775: 'InitialContextSetupFailure', # Alternative encoding
+                        776: 'AuthenticationRequest', # Alternative encoding
+                        777: 'AuthenticationResponse', # Alternative encoding
+                        778: 'SecurityModeCommand', # Alternative encoding
+                        779: 'SecurityModeComplete', # Alternative encoding
+                        780: 'SecurityModeReject', # Alternative encoding
+                        781: 'RegistrationRequest', # Alternative encoding
+                        782: 'RegistrationAccept', # Alternative encoding
+                        783: 'RegistrationReject', # Alternative encoding
+                        784: 'RegistrationComplete', # Alternative encoding
+                        785: 'RegistrationFailure', # Alternative encoding
+                        786: 'ServiceRequest', # Alternative encoding
+                        787: 'ServiceAccept', # Alternative encoding
+                        788: 'ServiceReject', # Alternative encoding
+                        789: 'ServiceFailure' # Alternative encoding
+                    }
+                    
+                    # Categorize message types based on procedure code
+                    procedure_code = ngap_info['procedure_code']
+                    if procedure_code in [9, 10, 776, 777]:  # Authentication
+                        ngap_info['is_authentication'] = True
+                    elif procedure_code in [11, 12, 13, 778, 779, 780]:  # Security
+                        ngap_info['is_security'] = True
+                    elif procedure_code in [3, 4, 5, 773, 774, 775]:  # Initial Context Setup (UE Setup)
+                        ngap_info['is_setup'] = True
+                        ngap_info['is_ue_setup'] = True  # UE-specific setup
+                    elif procedure_code in [21, 768, 769, 770]:  # NG Setup (gNB Setup) - 21 is id-NGSetup
+                        ngap_info['is_setup'] = True
+                        ngap_info['is_gnb_setup'] = True  # gNB-specific setup
+                    elif procedure_code in [5, 16, 18, 25, 26, 29, 31, 32, 35, 37, 39, 41, 43, 45, 47, 49, 770, 775, 783, 785, 788, 789]:  # Reject/Failure
+                        ngap_info['is_reject'] = True
+                    
+                    # Enhanced cause code extraction for reject/failure messages
+                    if ngap_info['is_reject'] and len(payload_bytes) >= 8:
+                        # Look for cause IE in multiple formats
+                        for i in range(4, min(len(payload_bytes) - 3, 128)):  # Search first 128 bytes
+                            # Standard cause IE format: 0x00 0x15 (Cause IE type)
+                            if (i + 3 < len(payload_bytes) and 
+                                payload_bytes[i] == 0x00 and 
+                                payload_bytes[i+1] == 0x15):  # Cause IE type
+                                cause_code = payload_bytes[i+3]
+                                ngap_info['cause_code'] = cause_code
+                                break
                             
-                            # Extended ranges and vendor-specific codes
-                            768: 'NGSetupRequest',      # Common vendor implementation
-                            769: 'NGSetupResponse',     # Common vendor implementation
-                            770: 'NGSetupFailure',      # Common vendor implementation
-                            771: 'InitialUEMessage',    # Alternative encoding
-                            772: 'DownlinkNASTransport', # Alternative encoding
-                            773: 'InitialContextSetupRequest', # Alternative encoding
-                            774: 'InitialContextSetupResponse', # Alternative encoding
-                            775: 'InitialContextSetupFailure', # Alternative encoding
-                            776: 'AuthenticationRequest', # Alternative encoding
-                            777: 'AuthenticationResponse', # Alternative encoding
-                            778: 'SecurityModeCommand', # Alternative encoding
-                            779: 'SecurityModeComplete', # Alternative encoding
-                            780: 'SecurityModeReject', # Alternative encoding
-                            781: 'RegistrationRequest', # Alternative encoding
-                            782: 'RegistrationAccept', # Alternative encoding
-                            783: 'RegistrationReject', # Alternative encoding
-                            784: 'RegistrationComplete', # Alternative encoding
-                            785: 'RegistrationFailure', # Alternative encoding
-                            786: 'ServiceRequest', # Alternative encoding
-                            787: 'ServiceAccept', # Alternative encoding
-                            788: 'ServiceReject', # Alternative encoding
-                            789: 'ServiceFailure' # Alternative encoding
-                        }
-                        
-                        # Categorize message types
-                        if procedure_code in [9, 10]:  # Authentication
-                            ngap_info['is_authentication'] = True
-                        elif procedure_code in [11, 12, 13]:  # Security
-                            ngap_info['is_security'] = True
-                        elif procedure_code in [3, 4, 5]:  # Initial Context Setup
-                            ngap_info['is_setup'] = True
-                        elif procedure_code in [5, 16, 18, 25, 26, 29, 31, 32, 35, 37, 39, 41, 43, 45, 47, 49]:  # Reject/Failure
-                            ngap_info['is_reject'] = True
-                        
-                        # Try to extract cause codes from reject/failure messages
-                        if ngap_info['is_reject'] and len(payload_bytes) >= 8:
-                            # Look for cause IE (typically after header)
-                            for i in range(4, min(len(payload_bytes) - 3, 64)):  # Search first 64 bytes
-                                if (i + 3 < len(payload_bytes) and 
-                                    payload_bytes[i] == 0x00 and 
-                                    payload_bytes[i+1] == 0x15):  # Cause IE type
-                                    cause_code = payload_bytes[i+3]
-                                    ngap_info['cause_code'] = cause_code
+                            # Alternative cause IE format: look for common cause codes
+                            if i + 1 < len(payload_bytes):
+                                potential_cause = payload_bytes[i]
+                                if potential_cause in [15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]:
+                                    ngap_info['cause_code'] = potential_cause
                                     break
-                        
-                        # Try to extract UE IDs (this is simplified - real parsing would be more complex)
-                        # Look for patterns that might indicate UE IDs
-                        if len(payload_bytes) >= 12:
-                            # This is a simplified approach - real NGAP parsing would be more sophisticated
-                            pass
-                            
-            return ngap_info
+                    
+                    # Additional cause code extraction for Initial Context Setup failures
+                    if procedure_code in [5, 775] and len(payload_bytes) >= 8:  # Initial Context Setup Failure
+                        # Look for cause codes in the payload
+                        for i in range(4, min(len(payload_bytes) - 1, 64)):
+                            if payload_bytes[i] in [15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]:
+                                ngap_info['cause_code'] = payload_bytes[i]
+                                ngap_info['is_reject'] = True
+                                break
+                    
+                    # Try to extract UE IDs (this is simplified - real parsing would be more complex)
+                    # Look for patterns that might indicate UE IDs
+                    if len(payload_bytes) >= 12:
+                        # This is a simplified approach - real NGAP parsing would be more sophisticated
+                        pass
+                    
+                    # Enhanced NAS PDU parsing for DownlinkNASTransport messages
+                    if procedure_code == 2:  # DownlinkNASTransport
+                        ngap_info = self._parse_nas_pdu(payload_bytes, ngap_info)
+                
+                # Fallback: If no procedure code found, try heuristic approach
+                if ngap_info['procedure_code'] is None and len(payload_bytes) >= 4:
+                    # Look for common NGAP message patterns in the payload
+                    for i in range(min(len(payload_bytes) - 3, 32)):
+                        # Check for Initial Context Setup patterns
+                        if (payload_bytes[i:i+2] == b'\x00\x03' or  # Initial Context Setup Request
+                            payload_bytes[i:i+2] == b'\x00\x04' or  # Initial Context Setup Response
+                            payload_bytes[i:i+2] == b'\x00\x05'):   # Initial Context Setup Failure
+                            ngap_info['procedure_code'] = int.from_bytes(payload_bytes[i:i+2], 'big')
+                            if i + 2 < len(payload_bytes):
+                                ngap_info['message_type'] = payload_bytes[i + 2]
+                            break
+                    
+                    # Additional fallback: Look for any 2-byte values that could be procedure codes
+                    if ngap_info['procedure_code'] is None:
+                        for i in range(min(len(payload_bytes) - 1, 16)):
+                            if i + 1 < len(payload_bytes):
+                                potential_proc = int.from_bytes(payload_bytes[i:i+2], 'big')
+                                # Check for NG Setup codes (21, 768, 769, 770) in any position
+                                if potential_proc in [21, 768, 769, 770]:
+                                    ngap_info['procedure_code'] = potential_proc
+                                    if i + 2 < len(payload_bytes):
+                                        ngap_info['message_type'] = payload_bytes[i + 2]
+                                    self.logger.info(f"Found NG Setup procedure code {potential_proc} at position {i}")
+                                    break
+                    
+                    # Final fallback: If still no procedure code found, do not infer NG Setup.
+                    # Avoid hallucinating NG Setup when explicit procedure evidence is missing.
+                    if ngap_info['procedure_code'] is None:
+                        pass
+                
+                return ngap_info
             
         except Exception as e:
             self.logger.debug(f"NGAP parsing error in packet {packet_index}: {e}")
@@ -678,8 +844,122 @@ class PCAPProcessor:
             return {
                 'src_port': getattr(sctp, 'sport', None),
                 'dst_port': getattr(sctp, 'dport', None),
-                'length': len(sctp.payload) if hasattr(sctp, 'payload') else 0
+                'length': len(sctp.payload) if hasattr(sctp, 'payload') else 0,
+                'procedure_code': None,
+                'message_type': None,
+                'amf_ue_ngap_id': None,
+                'ran_ue_ngap_id': None,
+                'cause_code': None,
+                'is_authentication': False,
+                'is_security': False,
+                'is_setup': False,
+                'is_ue_setup': False,
+                'is_gnb_setup': False,
+                'is_reject': False
             }
+            
+    def _parse_nas_pdu(self, payload_bytes: bytes, ngap_info: Dict) -> Dict:
+        """Parse NAS PDU to extract Registration Reject and other NAS messages.
+        
+        Args:
+            payload_bytes: Raw payload bytes
+            ngap_info: Current NGAP info dict to update
+            
+        Returns:
+            Updated ngap_info with NAS parsing results
+        """
+        try:
+            # Look for NAS PDU in the payload
+            for i in range(len(payload_bytes) - 4):
+                # Look for NAS PDU start pattern
+                if (i + 3 < len(payload_bytes) and 
+                    payload_bytes[i] == 0x7e):  # Extended protocol discriminator for 5GMM
+                    
+                    # Check for Registration Reject (0x44)
+                    if (i + 1 < len(payload_bytes) and 
+                        payload_bytes[i + 1] == 0x44):  # Registration Reject message type
+                        
+                        ngap_info['is_reject'] = True
+                        ngap_info['nas_message_type'] = 'RegistrationReject'
+                        
+                        # Look for 5GMM cause code (usually follows the message type)
+                        if i + 3 < len(payload_bytes):
+                            cause_code = payload_bytes[i + 3]
+                            ngap_info['cause_code'] = cause_code
+                            ngap_info['nas_cause_code'] = cause_code
+                            
+                            # Map common 5GMM cause codes
+                            cause_descriptions = {
+                                3: 'Illegal UE',
+                                6: 'Illegal ME',
+                                7: '5GS services not allowed',
+                                8: '5GS services temporarily not allowed',
+                                9: 'UE identity cannot be derived by the network',
+                                10: 'Implicitly de-registered',
+                                11: 'PLMN not allowed',
+                                12: 'Tracking area not allowed',
+                                13: 'Roaming not allowed in this tracking area',
+                                14: 'No suitable cells in tracking area',
+                                15: '5GS services not allowed in this PLMN',
+                                16: '5GS services temporarily not allowed in this PLMN',
+                                17: '5GS services not allowed in this tracking area',
+                                18: '5GS services temporarily not allowed in this tracking area',
+                                19: '5GS services not allowed in this PLMN',
+                                20: '5GS services temporarily not allowed in this PLMN',
+                                21: '5GS services not allowed in this tracking area',
+                                22: '5GS services temporarily not allowed in this tracking area',
+                                23: '5GS services not allowed in this PLMN',
+                                24: '5GS services temporarily not allowed in this PLMN',
+                                25: '5GS services not allowed in this tracking area',
+                                26: '5GS services temporarily not allowed in this tracking area',
+                                27: '5GS services not allowed in this PLMN',
+                                28: '5GS services temporarily not allowed in this PLMN',
+                                29: '5GS services not allowed in this tracking area',
+                                30: '5GS services temporarily not allowed in this tracking area'
+                            }
+                            
+                            if cause_code in cause_descriptions:
+                                ngap_info['nas_cause_description'] = cause_descriptions[cause_code]
+                        
+                        break
+                    
+                    # Check for other NAS message types
+                    elif (i + 1 < len(payload_bytes) and 
+                          payload_bytes[i + 1] == 0x43):  # Registration Accept
+                        ngap_info['nas_message_type'] = 'RegistrationAccept'
+                    elif (i + 1 < len(payload_bytes) and 
+                          payload_bytes[i + 1] == 0x41):  # Registration Request
+                        ngap_info['nas_message_type'] = 'RegistrationRequest'
+                    elif (i + 1 < len(payload_bytes) and 
+                          payload_bytes[i + 1] == 0x5e):  # Authentication Request
+                        ngap_info['nas_message_type'] = 'AuthenticationRequest'
+                    elif (i + 1 < len(payload_bytes) and 
+                          payload_bytes[i + 1] == 0x5f):  # Authentication Response
+                        ngap_info['nas_message_type'] = 'AuthenticationResponse'
+                    elif (i + 1 < len(payload_bytes) and 
+                          payload_bytes[i + 1] == 0x5d):  # Security Mode Command
+                        ngap_info['nas_message_type'] = 'SecurityModeCommand'
+                    elif (i + 1 < len(payload_bytes) and 
+                          payload_bytes[i + 1] == 0x5e):  # Security Mode Complete
+                        ngap_info['nas_message_type'] = 'SecurityModeComplete'
+                    elif (i + 1 < len(payload_bytes) and 
+                          payload_bytes[i + 1] == 0x5f):  # Security Mode Reject
+                        ngap_info['nas_message_type'] = 'SecurityModeReject'
+                        ngap_info['is_reject'] = True
+                        
+                        # Look for cause code in Security Mode Reject
+                        if i + 3 < len(payload_bytes):
+                            cause_code = payload_bytes[i + 3]
+                            ngap_info['cause_code'] = cause_code
+                            ngap_info['nas_cause_code'] = cause_code
+                        
+                        break
+            
+            return ngap_info
+            
+        except Exception as e:
+            self.logger.debug(f"NAS PDU parsing error: {e}")
+            return ngap_info
 
     def _detect_failure_patterns(self, features: Dict) -> None:
         """Detect common failure patterns and categorize them.
@@ -692,9 +972,10 @@ class PCAPProcessor:
         error_patterns = []
         root_cause_indicators = []
         
-        # NGAP failure detection
+        # NGAP failure detection (aggregate by unique cause codes)
         if features.get('ngap_cause_codes'):
-            for cause in features['ngap_cause_codes']:
+            unique_causes = set(features['ngap_cause_codes'])
+            for cause in unique_causes:
                 cause_patterns = {
                     15: 'NGAP_Reject_NoSuitableCells',
                     16: 'NGAP_Reject_UEIdentityCannotBeDerived',
@@ -718,6 +999,49 @@ class PCAPProcessor:
                     failure_scenarios.append(f"NGAP_Procedure_Rejected_Cause_{cause}")
                     error_patterns.append("NGAP_Rejection")
                     root_cause_indicators.append(f"NGAP_Cause_{cause}")
+        
+        # NAS failure detection (Registration Reject, Security Mode Reject, etc.)
+        if features.get('ngap_messages'):
+            for msg in features['ngap_messages']:
+                if msg.get('is_reject') and msg.get('nas_message_type'):
+                    if msg['nas_message_type'] == 'RegistrationReject':
+                        failure_patterns.append("NAS_Registration_Rejected")
+                        failure_scenarios.append("Registration_Rejection")
+                        error_patterns.append("NAS_Registration_Failure")
+                        
+                        # Add specific cause code information
+                        if msg.get('nas_cause_code'):
+                            cause_code = msg['nas_cause_code']
+                            root_cause_indicators.append(f"NAS_Registration_Reject_Cause_{cause_code}")
+                            
+                            # Map specific cause codes to detailed descriptions
+                            if cause_code == 3:
+                                failure_patterns.append("NAS_Registration_Reject_Illegal_UE")
+                                root_cause_indicators.append("UE_Identity_Issue")
+                            elif cause_code == 6:
+                                failure_patterns.append("NAS_Registration_Reject_Illegal_ME")
+                                root_cause_indicators.append("ME_Identity_Issue")
+                            elif cause_code == 11:
+                                failure_patterns.append("NAS_Registration_Reject_PLMN_Not_Allowed")
+                                root_cause_indicators.append("PLMN_Access_Issue")
+                            elif cause_code == 12:
+                                failure_patterns.append("NAS_Registration_Reject_Tracking_Area_Not_Allowed")
+                                root_cause_indicators.append("Tracking_Area_Access_Issue")
+                        
+                        # Update registration status
+                        features['ngap_registration_status'] = 'failed'
+                    
+                    elif msg['nas_message_type'] == 'SecurityModeReject':
+                        failure_patterns.append("NAS_Security_Mode_Rejected")
+                        failure_scenarios.append("Security_Mode_Rejection")
+                        error_patterns.append("NAS_Security_Failure")
+                        
+                        if msg.get('nas_cause_code'):
+                            cause_code = msg['nas_cause_code']
+                            root_cause_indicators.append(f"NAS_Security_Reject_Cause_{cause_code}")
+                        
+                        # Update security status
+                        features['ngap_security_status'] = 'failed'
         
         # PFCP failure detection
         if features.get('pfcp_session_establishment_failed'):
@@ -745,39 +1069,142 @@ class PCAPProcessor:
             error_patterns.append("Timing_Anomaly")
             root_cause_indicators.append("Network_Congestion_Or_Delay")
         
-        # Protocol handshake completion analysis
+        # Enhanced protocol handshake completion analysis
         if features.get('ngap_procedure_types'):
             # Check if we have both request and response for key procedures
-            setup_procedures = [3, 4, 5]  # Initial Context Setup
-            auth_procedures = [9, 10]      # Authentication
-            security_procedures = [11, 12, 13]  # Security
+            setup_procedures = [3, 4, 5, 773, 774, 775]  # Initial Context Setup (standard + vendor-specific)
+            auth_procedures = [9, 10, 776, 777]          # Authentication
+            security_procedures = [11, 12, 13, 778, 779, 780]  # Security
+            ngsetup_procedures = [768, 769, 770]         # NGAP Setup (vendor-specific)
             
-            for proc_type in setup_procedures:
-                if proc_type in features['ngap_procedure_types']:
-                    if proc_type + 1 in features['ngap_procedure_types'] or proc_type + 2 in features['ngap_procedure_types']:
-                        features['protocol_handshake_completion'][f'ngap_setup_{proc_type}'] = 'complete'
-                    else:
-                        features['protocol_handshake_completion'][f'ngap_setup_{proc_type}'] = 'incomplete'
-                        failure_patterns.append(f"NGAP_Setup_Incomplete_Procedure_{proc_type}")
-                        failure_scenarios.append("NGAP_Procedure_Incomplete")
-                        error_patterns.append("NGAP_Handshake_Incomplete")
-                        root_cause_indicators.append("NGAP_Procedure_Timeout_Or_Failure")
+            # Check NGAP Setup completion
+            # For NGAP Setup, both request and response use procedure_code 21, differentiated by message_type
+            has_ngsetup_request = any(proc == 21 for proc in features['ngap_procedure_types']) and any(msg == 0 for msg in features['ngap_message_types'])  # initiatingMessage
+            has_ngsetup_response = any(proc == 21 for proc in features['ngap_procedure_types']) and any(msg == 1 for msg in features['ngap_message_types'])  # successfulOutcome
+            has_ngsetup_failure = any(proc == 770 for proc in features['ngap_procedure_types'])  # Failure
+            
+            if has_ngsetup_request:
+                if has_ngsetup_failure:
+                    features['protocol_handshake_completion']['ngap_setup'] = 'failed'
+                    failure_patterns.append("NGAP_Setup_Failed")
+                    failure_scenarios.append("NGAP_Setup_Failure")
+                    root_cause_indicators.append("NGAP_Setup_Rejected")
+                elif has_ngsetup_response:
+                    features['protocol_handshake_completion']['ngap_setup'] = 'complete'
+                else:
+                    # Only mark incomplete if we truly observed an NG Setup request without response.
+                    if has_ngsetup_request:
+                        features['protocol_handshake_completion']['ngap_setup'] = 'incomplete'
+                        failure_patterns.append("NGAP_Setup_Incomplete")
+                        failure_scenarios.append("NGAP_Setup_Timeout")
+                        root_cause_indicators.append("NGAP_Setup_Timeout")
+            
+            # Check Initial Context Setup completion
+            has_setup_request = any(proc in features['ngap_procedure_types'] for proc in [3, 773])  # Request
+            has_setup_response = any(proc in features['ngap_procedure_types'] for proc in [4, 774])  # Response
+            has_setup_failure = any(proc in features['ngap_procedure_types'] for proc in [5, 775])  # Failure
+            
+            # Only check Initial Context Setup if we don't have NG Setup (to avoid false positives)
+            if has_setup_request and not any(proc in features['ngap_procedure_types'] for proc in [21]):
+                if has_setup_failure:
+                    features['protocol_handshake_completion']['ngap_initial_context_setup'] = 'failed'
+                    failure_patterns.append("NGAP_Initial_Context_Setup_Failed")
+                    failure_scenarios.append("NGAP_Initial_Context_Setup_Failure")
+                    root_cause_indicators.append("NGAP_Initial_Context_Setup_Rejected")
+                elif has_setup_response:
+                    features['protocol_handshake_completion']['ngap_initial_context_setup'] = 'complete'
+                else:
+                    features['protocol_handshake_completion']['ngap_initial_context_setup'] = 'incomplete'
+                    failure_patterns.append("NGAP_Initial_Context_Setup_Incomplete")
+                    failure_scenarios.append("NGAP_Procedure_Incomplete")
+                    root_cause_indicators.append("NGAP_Procedure_Timeout_Or_Failure")
+            
+            # Check Authentication completion
+            has_auth_request = any(proc in features['ngap_procedure_types'] for proc in [9, 776])
+            has_auth_response = any(proc in features['ngap_procedure_types'] for proc in [10, 777])
+            
+            if has_auth_request:
+                if has_auth_response:
+                    features['protocol_handshake_completion']['ngap_authentication'] = 'complete'
+                else:
+                    features['protocol_handshake_completion']['ngap_authentication'] = 'incomplete'
+                    failure_patterns.append("NGAP_Authentication_Incomplete")
+                    failure_scenarios.append("NGAP_Authentication_Timeout")
+                    error_patterns.append("NGAP_Authentication_Failure")
+                    root_cause_indicators.append("NGAP_Authentication_Issue")
+            
+            # Check Security Mode completion
+            has_security_command = any(proc in features['ngap_procedure_types'] for proc in [11, 778])
+            has_security_complete = any(proc in features['ngap_procedure_types'] for proc in [12, 779])
+            has_security_reject = any(proc in features['ngap_procedure_types'] for proc in [13, 780])
+            
+            if has_security_command:
+                if has_security_reject:
+                    features['protocol_handshake_completion']['ngap_security'] = 'failed'
+                    failure_patterns.append("NGAP_Security_Mode_Rejected")
+                    failure_scenarios.append("NGAP_Security_Setup_Failure")
+                    error_patterns.append("NGAP_Security_Failure")
+                    root_cause_indicators.append("NGAP_Security_Configuration_Issue")
+                elif has_security_complete:
+                    features['protocol_handshake_completion']['ngap_security'] = 'complete'
+                else:
+                    features['protocol_handshake_completion']['ngap_security'] = 'incomplete'
+                    failure_patterns.append("NGAP_Security_Mode_Incomplete")
+                    failure_scenarios.append("NGAP_Security_Timeout")
+                    error_patterns.append("NGAP_Security_Failure")
+                    root_cause_indicators.append("NGAP_Security_Configuration_Issue")
         
-        # Update features with detected patterns
-        features['failure_patterns'] = failure_patterns
-        features['failure_scenarios'] = failure_scenarios
-        features['error_patterns'] = error_patterns
-        features['root_cause_indicators'] = root_cause_indicators
+        # Deduplicate failure-related lists while preserving original discovery order
+        def dedup(seq):
+            seen = set()
+            out = []
+            for item in seq:
+                if item not in seen:
+                    seen.add(item)
+                    out.append(item)
+            return out
+        features['failure_patterns'] = dedup(failure_patterns)
+        features['failure_scenarios'] = dedup(failure_scenarios)
+        features['error_patterns'] = dedup(error_patterns)
+        features['root_cause_indicators'] = dedup(root_cause_indicators)
         features['has_failures'] = len(failure_patterns) > 0
         
-        # Determine overall registration status
+        # Enhanced registration status determination
         if features.get('ngap_procedure_types'):
+            # Check for explicit failure indicators
             if features.get('ngap_cause_codes'):
                 features['ngap_registration_status'] = 'failed'
-            elif any(proc in features['ngap_procedure_types'] for proc in [15, 17]):  # Registration Accept/Complete
+            elif any(proc in features['ngap_procedure_types'] for proc in [16, 18, 783, 785]):  # Registration Reject/Failure
+                features['ngap_registration_status'] = 'failed'
+            # Check for NAS-level rejections (Registration Reject in DownlinkNASTransport)
+            elif features.get('ngap_messages'):
+                for msg in features['ngap_messages']:
+                    if (msg.get('is_reject') and 
+                        msg.get('nas_message_type') == 'RegistrationReject'):
+                        features['ngap_registration_status'] = 'failed'
+                        break
+            elif any(proc in features['ngap_procedure_types'] for proc in [5, 775]):  # Initial Context Setup Failure
+                features['ngap_registration_status'] = 'failed'
+            elif any(proc in features['ngap_procedure_types'] for proc in [13, 780]):  # Security Mode Reject
+                features['ngap_registration_status'] = 'failed'
+            elif any(proc in features['ngap_procedure_types'] for proc in [770]):  # NGSetup Failure
+                features['ngap_registration_status'] = 'failed'
+            # Check for success indicators
+            elif any(proc in features['ngap_procedure_types'] for proc in [15, 17, 782, 784]):  # Registration Accept/Complete
                 features['ngap_registration_status'] = 'success'
-            else:
+            elif any(proc == 21 for proc in features['ngap_procedure_types']) and any(msg == 1 for msg in features['ngap_message_types']):
+                # NGSetup successfulOutcome seen
+                features['ngap_registration_status'] = 'success'
+            # Check for partial completion
+            elif any(proc in features['ngap_procedure_types'] for proc in [14, 781]):  # Registration Request
                 features['ngap_registration_status'] = 'partial'
+            elif any(proc in features['ngap_procedure_types'] for proc in [3, 4, 773, 774]):  # Initial Context Setup Request/Response
+                features['ngap_registration_status'] = 'partial'
+            elif any(proc == 21 for proc in features['ngap_procedure_types']) and any(msg == 0 for msg in features['ngap_message_types']):
+                # NGSetup initiatingMessage seen without outcome
+                features['ngap_registration_status'] = 'partial'
+            else:
+                features['ngap_registration_status'] = 'unknown'
 
     def _analyze_timing_anomalies(self, features: Dict) -> None:
         """Analyze timing patterns for anomalies.
@@ -910,6 +1337,7 @@ class PCAPProcessor:
             50: 'PDUSessionResourceModifyIndicationResponse',
             
             # Extended ranges and vendor-specific codes
+            21: 'NGSetupRequest',       # id-NGSetup (standard)
             768: 'NGSetupRequest',      # Common vendor implementation
             769: 'NGSetupResponse',     # Common vendor implementation
             770: 'NGSetupFailure',      # Common vendor implementation

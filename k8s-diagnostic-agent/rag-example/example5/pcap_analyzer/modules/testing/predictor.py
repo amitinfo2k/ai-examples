@@ -79,6 +79,25 @@ class PCAPPredictor:
                 }
                 confidence = max(proba)
             
+            # Enhanced prediction override based on NGAP failure analysis
+            # If we detect clear NGAP failures, override the model prediction
+            if features.get('has_failures') and features.get('ngap_registration_status') == 'failed':
+                # Override prediction to failure if we detect clear NGAP registration failure
+                prediction = 1  # 1 = failure
+                class_probs = {
+                    'success': 0.0,
+                    'failure': 1.0
+                }
+                confidence = 1.0
+            elif features.get('protocol_handshake_completion', {}).get('ngap_initial_context_setup') == 'failed':
+                # Override prediction to failure if Initial Context Setup failed
+                prediction = 1  # 1 = failure
+                class_probs = {
+                    'success': 0.0,
+                    'failure': 1.0
+                }
+                confidence = 1.0
+            
             # Get explanation using RAG
             explanation = self._explain_prediction(features)
             
@@ -105,6 +124,7 @@ class PCAPPredictor:
         Returns:
             DataFrame with features in expected format
         """
+        # Use only the original features that the model was trained with
         X = pd.DataFrame([{
             'total_packets': features['total_packets'],
             'avg_packet_size': features['avg_packet_size'],
@@ -284,13 +304,43 @@ class PCAPPredictor:
         
         # Enhanced NGAP indicators (5G control plane)
         if features.get('ngap_message_count', 0) > 0:
-            # Procedure types
+            # Procedure types (show unique procedures with counts)
             if features.get('ngap_procedure_types'):
-                procedures = [str(proc) for proc in features['ngap_procedure_types']]
+                # Count unique procedures
+                procedure_counts = {}
+                for proc in features['ngap_procedure_types']:
+                    proc_name = self._get_procedure_name(proc)
+                    procedure_counts[proc_name] = procedure_counts.get(proc_name, 0) + 1
+                
+                # Format as "ProcedureName (count), ..."
+                procedure_summary = []
+                for proc_name, count in sorted(procedure_counts.items()):
+                    if count > 1:
+                        procedure_summary.append(f"{proc_name} ({count})")
+                    else:
+                        procedure_summary.append(proc_name)
+                
                 indicators.append({
                     'type': 'info',
-                    'message': f"NGAP procedures detected: {', '.join(procedures)}"
+                    'message': f"NGAP procedures detected: {', '.join(procedure_summary)}"
                 })
+            
+            # UE Setup vs gNB Setup differentiation
+            if features.get('ngap_messages'):
+                ue_setup_count = sum(1 for msg in features['ngap_messages'] if msg.get('is_ue_setup', False))
+                gnb_setup_count = sum(1 for msg in features['ngap_messages'] if msg.get('is_gnb_setup', False))
+                
+                if ue_setup_count > 0:
+                    indicators.append({
+                        'type': 'info',
+                        'message': f"UE Setup procedures detected: {ue_setup_count} message(s)"
+                    })
+                
+                if gnb_setup_count > 0:
+                    indicators.append({
+                        'type': 'info',
+                        'message': f"gNB Setup procedures detected: {gnb_setup_count} message(s)"
+                    })
             
             # Registration status
             if features.get('ngap_registration_status'):
@@ -310,6 +360,11 @@ class PCAPPredictor:
                         'type': 'warning',
                         'message': f"NGAP registration partially completed - may indicate incomplete procedure"
                     })
+                elif status == 'unknown':
+                    indicators.append({
+                        'type': 'warning',
+                        'message': f"NGAP registration status unknown - insufficient procedure information"
+                    })
             
             # Authentication and security steps
             auth_steps = len(features.get('ngap_authentication_steps', []))
@@ -327,11 +382,83 @@ class PCAPPredictor:
             
             # Cause codes for failures
             if features.get('ngap_cause_codes'):
-                causes = [str(cause) for cause in features['ngap_cause_codes']]
+                # Aggregate duplicate cause codes with counts for readability
+                cause_counts = {}
+                for cause in features['ngap_cause_codes']:
+                    cause_counts[str(cause)] = cause_counts.get(str(cause), 0) + 1
+                formatted_causes = []
+                for cause_str, count in sorted(cause_counts.items(), key=lambda x: int(x[0])):
+                    if count > 1:
+                        formatted_causes.append(f"{cause_str} (x{count})")
+                    else:
+                        formatted_causes.append(cause_str)
                 indicators.append({
                     'type': 'error',
-                    'message': f"NGAP failure cause codes: {', '.join(causes)}"
+                    'message': f"NGAP failure cause codes: {', '.join(formatted_causes)}"
                 })
+            
+            # NGAP Setup and Initial Context Setup specific indicators
+            if features.get('protocol_handshake_completion'):
+                handshake_status = features['protocol_handshake_completion']
+                
+                # NGAP Setup indicators
+                if 'ngap_setup' in handshake_status:
+                    setup_status = handshake_status['ngap_setup']
+                    if setup_status == 'failed':
+                        indicators.append({
+                            'type': 'error',
+                            'message': "NGAP Setup FAILED - critical procedure failure detected"
+                        })
+                    elif setup_status == 'incomplete':
+                        indicators.append({
+                            'type': 'warning',
+                            'message': "NGAP Setup incomplete - missing response or timeout"
+                        })
+                    elif setup_status == 'complete':
+                        indicators.append({
+                            'type': 'success',
+                            'message': "NGAP Setup completed successfully"
+                        })
+                
+                # Initial Context Setup indicators
+                if 'ngap_initial_context_setup' in handshake_status:
+                    setup_status = handshake_status['ngap_initial_context_setup']
+                    if setup_status == 'failed':
+                        indicators.append({
+                            'type': 'error',
+                            'message': "NGAP Initial Context Setup FAILED - critical procedure failure detected"
+                        })
+                    elif setup_status == 'incomplete':
+                        indicators.append({
+                            'type': 'warning',
+                            'message': "NGAP Initial Context Setup incomplete - missing response or timeout"
+                        })
+                    elif setup_status == 'complete':
+                        indicators.append({
+                            'type': 'success',
+                            'message': "NGAP Initial Context Setup completed successfully"
+                        })
+                
+                if 'ngap_authentication' in handshake_status:
+                    auth_status = handshake_status['ngap_authentication']
+                    if auth_status == 'incomplete':
+                        indicators.append({
+                            'type': 'warning',
+                            'message': "NGAP Authentication incomplete - missing response or timeout"
+                        })
+                
+                if 'ngap_security' in handshake_status:
+                    security_status = handshake_status['ngap_security']
+                    if security_status == 'failed':
+                        indicators.append({
+                            'type': 'error',
+                            'message': "NGAP Security Mode REJECTED - security configuration failure"
+                        })
+                    elif security_status == 'incomplete':
+                        indicators.append({
+                            'type': 'warning',
+                            'message': "NGAP Security Mode incomplete - missing response or timeout"
+                        })
         
         # Protocol indicators for NGAP (only if no PFCP/GTP present)
         has_pfcp_or_gtp = features.get('pfcp_packets', 0) > 0 or features.get('gtp_packets', 0) > 0
@@ -431,3 +558,92 @@ class PCAPPredictor:
             })
         
         return indicators
+    
+    def _get_procedure_name(self, procedure_code: int) -> str:
+        """Get human-readable name for NGAP procedure code.
+        
+        Args:
+            procedure_code: NGAP procedure code
+            
+        Returns:
+            String representation of the procedure
+        """
+        procedure_names = {
+            # Standard NGAP procedures (1-50)
+            1: 'InitialUEMessage',
+            2: 'DownlinkNASTransport',
+            3: 'InitialContextSetupRequest',
+            4: 'InitialContextSetupResponse',
+            5: 'InitialContextSetupFailure',
+            6: 'UERadioCapabilityInfoIndication',
+            7: 'UERadioCapabilityCheckRequest',
+            8: 'UERadioCapabilityCheckResponse',
+            9: 'AuthenticationRequest',
+            10: 'AuthenticationResponse',
+            11: 'SecurityModeCommand',
+            12: 'SecurityModeComplete',
+            13: 'SecurityModeReject',
+            14: 'RegistrationRequest',
+            15: 'RegistrationAccept',
+            16: 'RegistrationReject',
+            17: 'RegistrationComplete',
+            18: 'RegistrationFailure',
+            19: 'DeregistrationRequest',
+            20: 'DeregistrationAccept',
+            21: 'DeregistrationRequest',
+            22: 'DeregistrationAccept',
+            23: 'ServiceRequest',
+            24: 'ServiceAccept',
+            25: 'ServiceReject',
+            26: 'ServiceFailure',
+            27: 'PDUSessionResourceSetupRequest',
+            28: 'PDUSessionResourceSetupResponse',
+            29: 'PDUSessionResourceSetupFailure',
+            30: 'PDUSessionResourceModifyRequest',
+            31: 'PDUSessionResourceModifyResponse',
+            32: 'PDUSessionResourceModifyFailure',
+            33: 'PDUSessionResourceReleaseRequest',
+            34: 'PDUSessionResourceReleaseResponse',
+            35: 'PDUSessionResourceReleaseFailure',
+            36: 'PDUSessionResourceNotify',
+            37: 'PDUSessionResourceNotifyResponse',
+            38: 'PDUSessionResourceNotifyFailure',
+            39: 'PDUSessionResourceModifyIndication',
+            40: 'PDUSessionResourceModifyConfirm',
+            41: 'PDUSessionResourceModifyIndicationFailure',
+            42: 'PDUSessionResourceModifyIndicationResponse',
+            43: 'PDUSessionResourceModifyIndicationFailure',
+            44: 'PDUSessionResourceModifyIndicationResponse',
+            45: 'PDUSessionResourceModifyIndicationFailure',
+            46: 'PDUSessionResourceModifyIndicationResponse',
+            47: 'PDUSessionResourceModifyIndicationFailure',
+            48: 'PDUSessionResourceModifyIndicationResponse',
+            49: 'PDUSessionResourceModifyIndicationFailure',
+            50: 'PDUSessionResourceModifyIndicationResponse',
+            
+            # Extended ranges and vendor-specific codes
+            21: 'NGSetupRequest',       # id-NGSetup (standard)
+            768: 'NGSetupRequest',      # Common vendor implementation
+            769: 'NGSetupResponse',     # Common vendor implementation
+            770: 'NGSetupFailure',      # Common vendor implementation
+            771: 'InitialUEMessage',    # Alternative encoding
+            772: 'DownlinkNASTransport', # Alternative encoding
+            773: 'InitialContextSetupRequest', # Alternative encoding
+            774: 'InitialContextSetupResponse', # Alternative encoding
+            775: 'InitialContextSetupFailure', # Alternative encoding
+            776: 'AuthenticationRequest', # Alternative encoding
+            777: 'AuthenticationResponse', # Alternative encoding
+            778: 'SecurityModeCommand', # Alternative encoding
+            779: 'SecurityModeComplete', # Alternative encoding
+            780: 'SecurityModeReject', # Alternative encoding
+            781: 'RegistrationRequest', # Alternative encoding
+            782: 'RegistrationAccept', # Alternative encoding
+            783: 'RegistrationReject', # Alternative encoding
+            784: 'RegistrationComplete', # Alternative encoding
+            785: 'RegistrationFailure', # Alternative encoding
+            786: 'ServiceRequest', # Alternative encoding
+            787: 'ServiceAccept', # Alternative encoding
+            788: 'ServiceReject', # Alternative encoding
+            789: 'ServiceFailure' # Alternative encoding
+        }
+        return procedure_names.get(procedure_code, f'UnknownProcedure_{procedure_code}')
