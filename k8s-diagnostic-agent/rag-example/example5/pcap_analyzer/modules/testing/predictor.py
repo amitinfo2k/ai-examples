@@ -80,22 +80,25 @@ class PCAPPredictor:
                 confidence = max(proba)
             
             # Enhanced prediction override based on NGAP failure analysis
-            # If we detect clear NGAP failures, override the model prediction
-            if features.get('has_failures') and features.get('ngap_registration_status') == 'failed':
-                # Override prediction to failure if we detect clear NGAP registration failure
-                prediction = 1  # 1 = failure
-                class_probs = {
-                    'success': 0.0,
-                    'failure': 1.0
-                }
-                confidence = 1.0
-            elif features.get('protocol_handshake_completion', {}).get('ngap_initial_context_setup') == 'failed':
-                # Override prediction to failure if Initial Context Setup failed
-                prediction = 1  # 1 = failure
-                class_probs = {
-                    'success': 0.0,
-                    'failure': 1.0
-                }
+            # Only override when we have explicit unsuccessfulOutcome or NAS-level reject evidence
+            # Only treat as explicit reject for specific reject/failure procedures
+            explicit_ngap_reject = False
+            if features.get('ngap_messages'):
+                for msg in features['ngap_messages']:
+                    proc = msg.get('procedure_code')
+                    nas_type = msg.get('nas_message_type')
+                    msg_type = msg.get('message_type')
+                    if nas_type in ('RegistrationReject', 'SecurityModeReject'):
+                        explicit_ngap_reject = True
+                        break
+                    # NGAP unsuccessfulOutcome for specific failure procedures only
+                    if msg_type == 2 and proc in (5, 13, 16, 18, 770, 775, 780, 783, 785):
+                        explicit_ngap_reject = True
+                        break
+
+            if explicit_ngap_reject or features.get('ngap_registration_status') == 'failed' or features.get('protocol_handshake_completion', {}).get('ngap_initial_context_setup') == 'failed':
+                prediction = 1
+                class_probs = {'success': 0.0, 'failure': 1.0}
                 confidence = 1.0
             
             # Get explanation using RAG
@@ -381,21 +384,26 @@ class PCAPPredictor:
                 })
             
             # Cause codes for failures
-            if features.get('ngap_cause_codes'):
-                # Aggregate duplicate cause codes with counts for readability
+            if features.get('ngap_detailed_causes'):
+                # Prefer human-readable detailed causes if available
+                from ..data_prep.ngap_cause_codes import get_ngap_cause_text
+                text_counts = {}
+                for dc in features['ngap_detailed_causes']:
+                    label = get_ngap_cause_text(dc.get('category'), dc.get('value'))
+                    text_counts[label] = text_counts.get(label, 0) + 1
+                formatted = []
+                for label, count in sorted(text_counts.items()):
+                    formatted.append(f"{label} (x{count})" if count > 1 else label)
+                indicators.append({'type': 'error', 'message': f"NGAP failure causes: {', '.join(formatted)}"})
+            elif features.get('ngap_cause_codes'):
+                # Fallback to numeric codes aggregation
                 cause_counts = {}
                 for cause in features['ngap_cause_codes']:
                     cause_counts[str(cause)] = cause_counts.get(str(cause), 0) + 1
                 formatted_causes = []
                 for cause_str, count in sorted(cause_counts.items(), key=lambda x: int(x[0])):
-                    if count > 1:
-                        formatted_causes.append(f"{cause_str} (x{count})")
-                    else:
-                        formatted_causes.append(cause_str)
-                indicators.append({
-                    'type': 'error',
-                    'message': f"NGAP failure cause codes: {', '.join(formatted_causes)}"
-                })
+                    formatted_causes.append(f"{cause_str} (x{count})" if count > 1 else cause_str)
+                indicators.append({'type': 'error', 'message': f"NGAP failure cause codes: {', '.join(formatted_causes)}"})
             
             # NGAP Setup and Initial Context Setup specific indicators
             if features.get('protocol_handshake_completion'):

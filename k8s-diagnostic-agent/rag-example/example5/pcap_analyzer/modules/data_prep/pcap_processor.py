@@ -4,12 +4,14 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 import numpy as np
-from scapy.all import rdpcap, IP, TCP, UDP, SCTP, Raw, ICMP
+from scapy.all import rdpcap, IP, TCP, UDP, SCTP, Raw, ICMP, SCTPChunkData
 from sentence_transformers import SentenceTransformer
 import pandas as pd
 from tqdm import tqdm
 from scapy.contrib.gtp import GTP_U_Header
 from .pfcp_cause_codes import get_pfcp_cause_analyzer
+from ..protocol.ngap_decoder import NGAPDecoder
+from .ngap_cause_codes import get_ngap_cause_text
 
 class PCAPProcessor:
     """Process PCAP files to extract features and generate embeddings for RAG."""
@@ -26,6 +28,9 @@ class PCAPProcessor:
         self.logger = logging.getLogger(__name__)
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.pfcp_analyzer = get_pfcp_cause_analyzer()
+        # Optional NGAP ASN.1 decoder (path can be configured; fallback if unavailable)
+        schema_path = self.config.get('ngap', {}).get('asn1_schema_path') if isinstance(self.config, dict) else None
+        self.ngap_decoder = NGAPDecoder(schema_path)
         if mapping_file and os.path.exists(mapping_file):
             self.logger.info(f"Loading label mapping from {mapping_file}")
             self._load_label_mapping(mapping_file)
@@ -87,6 +92,7 @@ class PCAPProcessor:
                 'ngap_procedure_types': [],  # e.g., 'InitialUEMessage', 'AuthenticationRequest', 'SetupRequest'
                 'ngap_message_types': [],    # Specific NGAP message type codes
                 'ngap_cause_codes': [],     # For reject/error messages
+                'ngap_detailed_causes': [], # (category, value) tuples if available
                 'ngap_amf_ue_ngap_id': [], # Track UE context
                 'ngap_ran_ue_ngap_id': [], # Track RAN context
                 'ngap_procedure_complete': False,  # Whether procedure completed successfully
@@ -233,9 +239,35 @@ class PCAPProcessor:
                         # NGAP runs over SCTP port 38412
                         try:
                             sctp = pkt[SCTP]
-                            if getattr(sctp, 'sport', None) == 38412 or getattr(sctp, 'dport', None) == 38412:
+                            # Prefer PPID=60 (NGAP) detection from Data chunks; ports are secondary
+                            ngap_payload = self._extract_sctp_ngap_payload(sctp)
+                            port_match = (getattr(sctp, 'sport', None) == 38412 or getattr(sctp, 'dport', None) == 38412)
+                            if ngap_payload is not None or port_match:
                                 # Enhanced NGAP message parsing
                                 ngap_info = self._parse_ngap_message(pkt, sctp, pkt_index)
+
+                                # If ASN.1 decoder is available, try decoding and enrich fields
+                                if self.ngap_decoder and self.ngap_decoder.is_available():
+                                    payload_bytes = ngap_payload if ngap_payload is not None else b''
+                                    if not payload_bytes:
+                                        if hasattr(sctp, 'payload') and sctp.payload:
+                                            payload_bytes = bytes(sctp.payload)
+                                        elif Raw in pkt and hasattr(pkt[Raw], 'load'):
+                                            payload_bytes = bytes(pkt[Raw].load)
+                                    if payload_bytes:
+                                        decoded = self.ngap_decoder.decode_pdu(payload_bytes)
+                                        if decoded:
+                                            basic = self.ngap_decoder.extract_basic_fields(decoded)
+                                            # Merge fields if decoder produced values
+                                            for k in ('procedure_code', 'message_type', 'amf_ue_ngap_id', 'ran_ue_ngap_id'):
+                                                if basic.get(k) is not None:
+                                                    ngap_info[k] = basic[k]
+                                            # Map cause to numeric code when possible for existing logic
+                                            if basic.get('cause'):
+                                                cause = basic['cause']
+                                                # Keep category:value representation
+                                                ngap_info['cause_category'] = cause.get('category')
+                                                ngap_info['cause_code'] = cause.get('value')
                                 
                                 # Safety check: ensure ngap_info is not None
                                 if ngap_info is None:
@@ -261,7 +293,7 @@ class PCAPProcessor:
                                 # Extract NGAP procedure and message types
                                 if ngap_info.get('procedure_code'):
                                     features['ngap_procedure_types'].append(ngap_info['procedure_code'])
-                                if ngap_info.get('message_type'):
+                                if ngap_info.get('message_type') is not None:
                                     features['ngap_message_types'].append(ngap_info['message_type'])
                                 
                                 # Track NGAP IDs for context
@@ -276,9 +308,21 @@ class PCAPProcessor:
                                 if ngap_info.get('is_security'):
                                     features['ngap_security_steps'].append(ngap_info['message_type'])
                                 
-                                # Track cause codes for failures
-                                if ngap_info.get('cause_code'):
+                                # Track cause codes only for explicit rejects (unsuccessfulOutcome) or NAS rejects
+                                if (
+                                    ngap_info.get('cause_code') is not None and
+                                    (
+                                        ngap_info.get('message_type') == 2 or
+                                        (ngap_info.get('is_reject') and ngap_info.get('nas_message_type') is not None)
+                                    )
+                                ):
                                     features['ngap_cause_codes'].append(ngap_info['cause_code'])
+                                # Store detailed cause if available from decoder
+                                if ngap_info.get('cause_category') and ngap_info.get('cause_code') is not None:
+                                    features['ngap_detailed_causes'].append({
+                                        'category': ngap_info['cause_category'],
+                                        'value': ngap_info['cause_code'] if isinstance(ngap_info['cause_code'], str) else str(ngap_info['cause_code'])
+                                    })
                                     
                         except Exception as e:
                             self.logger.debug(f"NGAP parsing error: {e}")
@@ -324,11 +368,13 @@ class PCAPProcessor:
             # Calculate statistics
             features['avg_packet_size'] = np.mean(features['packet_sizes']) if features['packet_sizes'] else 0
             features['avg_timing'] = np.mean(features['timings']) if features['timings'] else 0
-            features['error_count'] = len(features['errors'])
             features['ngap_message_count'] = len(features['ngap_messages'])
 
             # Enhanced analysis
             self._detect_failure_patterns(features)
+            
+            # Calculate error count after failure patterns are detected and errors list is populated
+            features['error_count'] = len(features['errors'])
             self._analyze_timing_anomalies(features)
             self._enhance_pfcp_analysis(features)
 
@@ -609,19 +655,23 @@ class PCAPProcessor:
             # Parse NGAP payload if available
             payload_bytes = b''
             
-            # Try multiple ways to get the NGAP payload
-            if hasattr(sctp, 'payload') and sctp.payload:
-                payload_bytes = bytes(sctp.payload)
-                self.logger.info(f"SCTP payload length: {len(payload_bytes)}")
-            
-            # If SCTP payload is empty, try Raw layer
-            if len(payload_bytes) == 0 and Raw in packet:
-                payload_bytes = bytes(packet[Raw].load)
-                self.logger.info(f"Raw payload length: {len(payload_bytes)}")
+            # Prefer SCTP Data chunk with PPID=60
+            ngap_payload = self._extract_sctp_ngap_payload(sctp)
+            if ngap_payload is not None:
+                payload_bytes = ngap_payload
+                self.logger.debug(f"SCTP NGAP (PPID 60) payload length: {len(payload_bytes)}")
+            else:
+                # Fallbacks: entire SCTP payload, then Raw
+                if hasattr(sctp, 'payload') and sctp.payload:
+                    payload_bytes = bytes(sctp.payload)
+                    self.logger.debug(f"SCTP payload length: {len(payload_bytes)}")
+                if len(payload_bytes) == 0 and Raw in packet and hasattr(packet[Raw], 'load'):
+                    payload_bytes = bytes(packet[Raw].load)
+                    self.logger.debug(f"Raw payload length: {len(payload_bytes)}")
             
             # Debug logging for NGAP payload analysis
             if len(payload_bytes) > 0:
-                self.logger.info(f"NGAP payload hex: {payload_bytes[:32].hex() if len(payload_bytes) >= 32 else payload_bytes.hex()}")
+                self.logger.debug(f"NGAP payload hex: {payload_bytes[:32].hex() if len(payload_bytes) >= 32 else payload_bytes.hex()}")
             else:
                 self.logger.warning("No NGAP payload found in packet")
             
@@ -633,10 +683,9 @@ class PCAPProcessor:
                         potential_proc = int.from_bytes(payload_bytes[i:i+2], 'big')
                         if potential_proc == 21:  # id-NGSetup
                             ngap_info['procedure_code'] = potential_proc
-                            if i + 2 < len(payload_bytes):
-                                ngap_info['message_type'] = payload_bytes[i + 2]
-                            self.logger.info(f"Found NG Setup procedure code {potential_proc} at position {i}")
+                            self.logger.debug(f"Found NG Setup procedure code {potential_proc} at position {i}")
                             break
+                # Do not early-return on NGSetup; continue to parse NAS messages too
                 
                 # Method 2: Look for other NGAP procedure codes
                 if ngap_info['procedure_code'] is None:
@@ -658,19 +707,10 @@ class PCAPProcessor:
                         ngap_info['procedure_code'] = procedure_code
                         ngap_info['message_type'] = message_type
                 
-                # Method 4: Look for specific NGAP message patterns
-                if ngap_info['procedure_code'] is None:
-                    # Search for known NGAP message signatures
-                    for i in range(len(payload_bytes) - 3):
-                        # Look for Initial Context Setup patterns
-                        if (payload_bytes[i:i+2] == b'\x03\x00' or  # Initial Context Setup Request
-                            payload_bytes[i:i+2] == b'\x04\x00' or  # Initial Context Setup Response  
-                            payload_bytes[i:i+2] == b'\x05\x00'):   # Initial Context Setup Failure
-                            ngap_info['procedure_code'] = int.from_bytes(payload_bytes[i:i+2], 'big')
-                            if i + 2 < len(payload_bytes):
-                                ngap_info['message_type'] = payload_bytes[i + 2]
-                            break
+                # Skip broad Initial Context Setup byte-pattern heuristic to avoid misclassification
                 
+                # Remove direction-based overrides; rely on explicit parsing/decoder
+
                 # Map procedure codes to meaningful names and categorize
                 if ngap_info['procedure_code'] is not None:
                     procedure_names = {
@@ -805,31 +845,17 @@ class PCAPProcessor:
                     if procedure_code == 2:  # DownlinkNASTransport
                         ngap_info = self._parse_nas_pdu(payload_bytes, ngap_info)
                 
-                # Fallback: If no procedure code found, try heuristic approach
+                # Fallback: If no procedure code found, try a conservative heuristic
                 if ngap_info['procedure_code'] is None and len(payload_bytes) >= 4:
-                    # Look for common NGAP message patterns in the payload
-                    for i in range(min(len(payload_bytes) - 3, 32)):
-                        # Check for Initial Context Setup patterns
-                        if (payload_bytes[i:i+2] == b'\x00\x03' or  # Initial Context Setup Request
-                            payload_bytes[i:i+2] == b'\x00\x04' or  # Initial Context Setup Response
-                            payload_bytes[i:i+2] == b'\x00\x05'):   # Initial Context Setup Failure
-                            ngap_info['procedure_code'] = int.from_bytes(payload_bytes[i:i+2], 'big')
-                            if i + 2 < len(payload_bytes):
-                                ngap_info['message_type'] = payload_bytes[i + 2]
-                            break
-                    
-                    # Additional fallback: Look for any 2-byte values that could be procedure codes
-                    if ngap_info['procedure_code'] is None:
-                        for i in range(min(len(payload_bytes) - 1, 16)):
-                            if i + 1 < len(payload_bytes):
-                                potential_proc = int.from_bytes(payload_bytes[i:i+2], 'big')
-                                # Check for NG Setup codes (21, 768, 769, 770) in any position
-                                if potential_proc in [21, 768, 769, 770]:
-                                    ngap_info['procedure_code'] = potential_proc
-                                    if i + 2 < len(payload_bytes):
-                                        ngap_info['message_type'] = payload_bytes[i + 2]
-                                    self.logger.info(f"Found NG Setup procedure code {potential_proc} at position {i}")
-                                    break
+                    # Look for NG Setup codes (21, 768-770) conservatively
+                    for i in range(min(len(payload_bytes) - 1, 32)):
+                        potential_proc = int.from_bytes(payload_bytes[i:i+2], 'big')
+                        if potential_proc in [21, 768, 769, 770]:
+                            ngap_info['procedure_code'] = potential_proc
+                            if getattr(sctp, 'sport', None) == 38412 or getattr(sctp, 'dport', None) == 38412:
+                                ngap_info['message_type'] = 1 if getattr(sctp, 'sport', None) == 38412 else 0
+                            self.logger.info(f"Heuristic NGSetup-like code {potential_proc} at offset {i}")
+                            return ngap_info
                     
                     # Final fallback: If still no procedure code found, do not infer NG Setup.
                     # Avoid hallucinating NG Setup when explicit procedure evidence is missing.
@@ -858,6 +884,38 @@ class PCAPProcessor:
                 'is_reject': False
             }
             
+    def _extract_sctp_ngap_payload(self, sctp) -> bytes:
+        """Extract NGAP bytes from SCTP Data chunks with PPID 60.
+        Returns bytes if found, otherwise None.
+        """
+        try:
+            # Iterate over chunks; scapy represents chunks as layers under SCTP
+            # Collect first Data chunk with proto_id 60
+            NGAP_PPID = 60
+            # Direct attribute access when single Data chunk is the payload
+            if hasattr(sctp, 'chunks'):
+                for ch in sctp.chunks:
+                    if isinstance(ch, SCTPChunkData) and getattr(ch, 'proto_id', None) == NGAP_PPID:
+                        data = getattr(ch, 'data', b'')
+                        if isinstance(data, bytes):
+                            return data
+                        try:
+                            return bytes(data)
+                        except Exception:
+                            return None
+            # Fallback: walk next layers
+            current = sctp.payload
+            for _ in range(8):
+                if isinstance(current, SCTPChunkData) and getattr(current, 'proto_id', None) == NGAP_PPID:
+                    data = getattr(current, 'data', b'')
+                    return data if isinstance(data, bytes) else bytes(data)
+                if not hasattr(current, 'payload') or current.payload is None or current.payload == b'':
+                    break
+                current = current.payload
+        except Exception:
+            return None
+        return None
+
     def _parse_nas_pdu(self, payload_bytes: bytes, ngap_info: Dict) -> Dict:
         """Parse NAS PDU to extract Registration Reject and other NAS messages.
         
@@ -1077,11 +1135,19 @@ class PCAPProcessor:
             security_procedures = [11, 12, 13, 778, 779, 780]  # Security
             ngsetup_procedures = [768, 769, 770]         # NGAP Setup (vendor-specific)
             
-            # Check NGAP Setup completion
-            # For NGAP Setup, both request and response use procedure_code 21, differentiated by message_type
-            has_ngsetup_request = any(proc == 21 for proc in features['ngap_procedure_types']) and any(msg == 0 for msg in features['ngap_message_types'])  # initiatingMessage
-            has_ngsetup_response = any(proc == 21 for proc in features['ngap_procedure_types']) and any(msg == 1 for msg in features['ngap_message_types'])  # successfulOutcome
-            has_ngsetup_failure = any(proc == 770 for proc in features['ngap_procedure_types'])  # Failure
+            # Check NGAP Setup completion (correlate procedure with message_type per message)
+            has_ngsetup_request = any(
+                (m.get('procedure_code') == 21 and m.get('message_type') == 0)
+                for m in features.get('ngap_messages', [])
+            )
+            has_ngsetup_response = any(
+                (m.get('procedure_code') == 21 and m.get('message_type') == 1)
+                for m in features.get('ngap_messages', [])
+            )
+            has_ngsetup_failure = any(
+                (m.get('procedure_code') == 770) or (m.get('procedure_code') == 21 and m.get('message_type') == 2)
+                for m in features.get('ngap_messages', [])
+            )
             
             if has_ngsetup_request:
                 if has_ngsetup_failure:
@@ -1169,12 +1235,30 @@ class PCAPProcessor:
         features['root_cause_indicators'] = dedup(root_cause_indicators)
         features['has_failures'] = len(failure_patterns) > 0
         
+        # Populate errors list with detected failures for accurate error counting
+        if features['has_failures']:
+            # Add specific error types based on detected failures
+            if any('NGAP_Reject' in pattern for pattern in failure_patterns):
+                features['errors'].append('NGAP_Procedure_Rejection')
+            if any('NAS_Registration_Rejected' in pattern for pattern in failure_patterns):
+                features['errors'].append('NAS_Registration_Rejection')
+            if any('NAS_Security_Mode_Rejected' in pattern for pattern in failure_patterns):
+                features['errors'].append('NAS_Security_Rejection')
+            if any('NGAP_Setup_Failed' in pattern for pattern in failure_patterns):
+                features['errors'].append('NGAP_Setup_Failure')
+            if any('NGAP_Initial_Context_Setup_Failed' in pattern for pattern in failure_patterns):
+                features['errors'].append('NGAP_Initial_Context_Setup_Failure')
+            if any('PFCP_' in pattern and 'Failed' in pattern for pattern in failure_patterns):
+                features['errors'].append('PFCP_Session_Failure')
+            if any('Timing_Anomaly' in pattern for pattern in failure_patterns):
+                features['errors'].append('Timing_Anomaly')
+            if any('Incomplete' in pattern for pattern in failure_patterns):
+                features['errors'].append('Protocol_Handshake_Incomplete')
+        
         # Enhanced registration status determination
         if features.get('ngap_procedure_types'):
-            # Check for explicit failure indicators
-            if features.get('ngap_cause_codes'):
-                features['ngap_registration_status'] = 'failed'
-            elif any(proc in features['ngap_procedure_types'] for proc in [16, 18, 783, 785]):  # Registration Reject/Failure
+            # Check for explicit failure indicators (specific procedures)
+            if any(proc in features['ngap_procedure_types'] for proc in [16, 18, 783, 785]):  # Registration Reject/Failure
                 features['ngap_registration_status'] = 'failed'
             # Check for NAS-level rejections (Registration Reject in DownlinkNASTransport)
             elif features.get('ngap_messages'):
