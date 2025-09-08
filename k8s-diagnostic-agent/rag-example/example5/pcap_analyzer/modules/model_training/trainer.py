@@ -63,10 +63,22 @@ class PCAPModelTrainer:
         
         y = df['label']
         
+        # Check if we have enough samples for stratified split
+        from collections import Counter
+        label_counts = Counter(y)
+        min_class_count = min(label_counts.values())
+        
         # Split into train and test sets
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=42, stratify=y
-        )
+        if min_class_count >= 2 and len(y) >= 4:  # Need at least 2 per class and 4 total for meaningful split
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=test_size, random_state=42, stratify=y
+            )
+        else:
+            # For small datasets, use simple random split without stratification
+            print(f"Warning: Small dataset detected (min class count: {min_class_count}, total: {len(y)}). Using simple random split.")
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=test_size, random_state=42
+            )
         
         return X_train, y_train, X_test, y_test
     

@@ -1,5 +1,11 @@
-sample_upf_fail.pcap,failure
 sample_upf_success.pcap,success
 upf_pfcp_establishment_success.pcap,success
+pfcp_heartbeat_success.pcap,success
+ngsetup_success.pcap,success
+ngap_success.pcap,success
+sample_upf_fail.pcap,failure
 upf_pfcp_establishment_failure.pcap,failure
 upf_smf_teid_not_found.pcap,failure
+initial_context_setup_failure.pcap,failure
+smf_establishment_response_missing.pcap,failure
+amf_illigal_ue.pcap,failure
