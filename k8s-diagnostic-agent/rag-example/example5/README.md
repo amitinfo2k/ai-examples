@@ -120,6 +120,12 @@ Edit `config.yaml` to customize:
 - Model hyperparameters
 - RAG settings
 
+
+## Test scenarios
+
+![Test scenarios](resources/test-scenarios.png)
+
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
