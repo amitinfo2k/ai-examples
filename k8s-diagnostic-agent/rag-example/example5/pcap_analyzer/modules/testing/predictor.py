@@ -319,7 +319,7 @@ class PCAPPredictor:
                 procedure_summary = []
                 for proc_name, count in sorted(procedure_counts.items()):
                     if count > 1:
-                        procedure_summary.append(f"{proc_name} ({count})")
+                        procedure_summary.append(f"{proc_name} (x{count})")
                     else:
                         procedure_summary.append(proc_name)
                 
@@ -577,81 +577,72 @@ class PCAPPredictor:
             String representation of the procedure
         """
         procedure_names = {
-            # Standard NGAP procedures (1-50)
-            1: 'InitialUEMessage',
-            2: 'DownlinkNASTransport',
-            3: 'InitialContextSetupRequest',
-            4: 'InitialContextSetupResponse',
-            5: 'InitialContextSetupFailure',
-            6: 'UERadioCapabilityInfoIndication',
-            7: 'UERadioCapabilityCheckRequest',
-            8: 'UERadioCapabilityCheckResponse',
-            9: 'AuthenticationRequest',
-            10: 'AuthenticationResponse',
-            11: 'SecurityModeCommand',
-            12: 'SecurityModeComplete',
-            13: 'SecurityModeReject',
-            14: 'RegistrationRequest',
-            15: 'RegistrationAccept',
-            16: 'RegistrationReject',
-            17: 'RegistrationComplete',
-            18: 'RegistrationFailure',
-            19: 'DeregistrationRequest',
-            20: 'DeregistrationAccept',
-            21: 'DeregistrationRequest',
-            22: 'DeregistrationAccept',
-            23: 'ServiceRequest',
-            24: 'ServiceAccept',
-            25: 'ServiceReject',
-            26: 'ServiceFailure',
-            27: 'PDUSessionResourceSetupRequest',
-            28: 'PDUSessionResourceSetupResponse',
-            29: 'PDUSessionResourceSetupFailure',
-            30: 'PDUSessionResourceModifyRequest',
-            31: 'PDUSessionResourceModifyResponse',
-            32: 'PDUSessionResourceModifyFailure',
-            33: 'PDUSessionResourceReleaseRequest',
-            34: 'PDUSessionResourceReleaseResponse',
-            35: 'PDUSessionResourceReleaseFailure',
-            36: 'PDUSessionResourceNotify',
-            37: 'PDUSessionResourceNotifyResponse',
-            38: 'PDUSessionResourceNotifyFailure',
-            39: 'PDUSessionResourceModifyIndication',
-            40: 'PDUSessionResourceModifyConfirm',
-            41: 'PDUSessionResourceModifyIndicationFailure',
-            42: 'PDUSessionResourceModifyIndicationResponse',
-            43: 'PDUSessionResourceModifyIndicationFailure',
-            44: 'PDUSessionResourceModifyIndicationResponse',
-            45: 'PDUSessionResourceModifyIndicationFailure',
-            46: 'PDUSessionResourceModifyIndicationResponse',
-            47: 'PDUSessionResourceModifyIndicationFailure',
-            48: 'PDUSessionResourceModifyIndicationResponse',
-            49: 'PDUSessionResourceModifyIndicationFailure',
-            50: 'PDUSessionResourceModifyIndicationResponse',
-            
-            # Extended ranges and vendor-specific codes
-            21: 'NGSetupRequest',       # id-NGSetup (standard)
-            768: 'NGSetupRequest',      # Common vendor implementation
-            769: 'NGSetupResponse',     # Common vendor implementation
-            770: 'NGSetupFailure',      # Common vendor implementation
-            771: 'InitialUEMessage',    # Alternative encoding
-            772: 'DownlinkNASTransport', # Alternative encoding
-            773: 'InitialContextSetupRequest', # Alternative encoding
-            774: 'InitialContextSetupResponse', # Alternative encoding
-            775: 'InitialContextSetupFailure', # Alternative encoding
-            776: 'AuthenticationRequest', # Alternative encoding
-            777: 'AuthenticationResponse', # Alternative encoding
-            778: 'SecurityModeCommand', # Alternative encoding
-            779: 'SecurityModeComplete', # Alternative encoding
-            780: 'SecurityModeReject', # Alternative encoding
-            781: 'RegistrationRequest', # Alternative encoding
-            782: 'RegistrationAccept', # Alternative encoding
-            783: 'RegistrationReject', # Alternative encoding
-            784: 'RegistrationComplete', # Alternative encoding
-            785: 'RegistrationFailure', # Alternative encoding
-            786: 'ServiceRequest', # Alternative encoding
-            787: 'ServiceAccept', # Alternative encoding
-            788: 'ServiceReject', # Alternative encoding
-            789: 'ServiceFailure' # Alternative encoding
+            # Official NGAP procedure codes from 3GPP TS 38.413 v16.2.0
+            0: 'AMFConfigurationUpdate',             # id-AMFConfigurationUpdate
+            1: 'AMFStatusIndication',                # id-AMFStatusIndication
+            2: 'CellTrafficTrace',                   # id-CellTrafficTrace
+            3: 'DeactivateTrace',                    # id-DeactivateTrace
+            4: 'DownlinkNASTransport',               # id-DownlinkNASTransport
+            5: 'DownlinkNonUEAssociatedNRPPaTransport', # id-DownlinkNonUEAssociatedNRPPaTransport
+            6: 'DownlinkRANConfigurationTransfer',   # id-DownlinkRANConfigurationTransfer
+            7: 'DownlinkRANStatusTransfer',          # id-DownlinkRANStatusTransfer
+            8: 'DownlinkUEAssociatedNRPPaTransport', # id-DownlinkUEAssociatedNRPPaTransport
+            9: 'ErrorIndication',                    # id-ErrorIndication
+            10: 'HandoverCancel',                    # id-HandoverCancel
+            11: 'HandoverNotification',              # id-HandoverNotification
+            12: 'HandoverPreparation',               # id-HandoverPreparation
+            13: 'HandoverResourceAllocation',        # id-HandoverResourceAllocation
+            14: 'InitialContextSetup',               # id-InitialContextSetup
+            15: 'InitialUEMessage',                  # id-InitialUEMessage
+            16: 'LocationReportingControl',          # id-LocationReportingControl
+            17: 'LocationReportingFailureIndication', # id-LocationReportingFailureIndication
+            18: 'LocationReport',                    # id-LocationReport
+            19: 'NASNonDeliveryIndication',          # id-NASNonDeliveryIndication
+            20: 'NGReset',                           # id-NGReset
+            21: 'NGSetup',                           # id-NGSetup
+            22: 'OverloadStart',                     # id-OverloadStart
+            23: 'OverloadStop',                      # id-OverloadStop
+            24: 'Paging',                            # id-Paging
+            25: 'PathSwitchRequest',                 # id-PathSwitchRequest
+            26: 'PDUSessionResourceModify',          # id-PDUSessionResourceModify
+            27: 'PDUSessionResourceModifyIndication', # id-PDUSessionResourceModifyIndication
+            28: 'PDUSessionResourceRelease',         # id-PDUSessionResourceRelease
+            29: 'PDUSessionResourceSetup',           # id-PDUSessionResourceSetup
+            30: 'PDUSessionResourceNotify',          # id-PDUSessionResourceNotify
+            31: 'PrivateMessage',                    # id-PrivateMessage
+            32: 'PWSCancel',                         # id-PWSCancel
+            33: 'PWSFailureIndication',              # id-PWSFailureIndication
+            34: 'PWSRestartIndication',              # id-PWSRestartIndication
+            35: 'RANConfigurationUpdate',            # id-RANConfigurationUpdate
+            36: 'RerouteNASRequest',                 # id-RerouteNASRequest
+            37: 'RRCInactiveTransitionReport',       # id-RRCInactiveTransitionReport
+            38: 'TraceFailureIndication',            # id-TraceFailureIndication
+            39: 'TraceStart',                        # id-TraceStart
+            40: 'UEContextModification',             # id-UEContextModification
+            41: 'UEContextRelease',                  # id-UEContextRelease
+            42: 'UEContextReleaseRequest',           # id-UEContextReleaseRequest
+            43: 'UERadioCapabilityCheck',            # id-UERadioCapabilityCheck
+            44: 'UERadioCapabilityInfoIndication',   # id-UERadioCapabilityInfoIndication
+            45: 'UETNLABindingRelease',              # id-UETNLABindingRelease
+            46: 'UplinkNASTransport',                # id-UplinkNASTransport
+            47: 'UplinkNonUEAssociatedNRPPaTransport', # id-UplinkNonUEAssociatedNRPPaTransport
+            48: 'UplinkRANConfigurationTransfer',    # id-UplinkRANConfigurationTransfer
+            49: 'UplinkRANStatusTransfer',           # id-UplinkRANStatusTransfer
+            50: 'UplinkUEAssociatedNRPPaTransport',  # id-UplinkUEAssociatedNRPPaTransport
+            51: 'WriteReplaceWarning',               # id-WriteReplaceWarning
+            52: 'SecondaryRATDataUsageReport',       # id-SecondaryRATDataUsageReport
+            53: 'UplinkRIMInformationTransfer',      # id-UplinkRIMInformationTransfer
+            54: 'DownlinkRIMInformationTransfer',    # id-DownlinkRIMInformationTransfer
+            55: 'RetrieveUEInformation',             # id-RetrieveUEInformation
+            56: 'UEInformationTransfer',             # id-UEInformationTransfer
+            57: 'RANCPRelocationIndication',         # id-RANCPRelocationIndication
+            58: 'UEContextResume',                   # id-UEContextResume
+            59: 'UEContextSuspend',                  # id-UEContextSuspend
+            60: 'UERadioCapabilityIDMapping',        # id-UERadioCapabilityIDMapping
+            61: 'HandoverSuccess',                   # id-HandoverSuccess
+            62: 'UplinkRANEarlyStatusTransfer',      # id-UplinkRANEarlyStatusTransfer
+            63: 'DownlinkRANEarlyStatusTransfer',    # id-DownlinkRANEarlyStatusTransfer
+            64: 'AMFCPRelocationIndication',         # id-AMFCPRelocationIndication
+            65: 'ConnectionEstablishmentIndication', # id-ConnectionEstablishmentIndication
         }
         return procedure_names.get(procedure_code, f'UnknownProcedure_{procedure_code}')

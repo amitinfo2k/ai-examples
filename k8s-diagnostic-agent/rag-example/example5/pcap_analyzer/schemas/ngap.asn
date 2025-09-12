@@ -1,0 +1,267 @@
+-- NGAP ASN.1 Schema (Simplified version for testing)
+-- Based on 3GPP TS 38.413
+
+NGAP-PDU-Descriptions DEFINITIONS AUTOMATIC TAGS ::= BEGIN
+
+-- **************************************************************
+-- Common Definitions
+-- **************************************************************
+
+Criticality ::= ENUMERATED { reject(0), ignore(1), notify(2) }
+
+Presence ::= ENUMERATED { optional(0), conditional(1), mandatory(2) }
+
+ProcedureCode ::= INTEGER (0..255)
+
+ProtocolExtensionID ::= INTEGER (0..65535)
+
+ProtocolIE-ID ::= INTEGER (0..65535)
+
+TriggeringMessage ::= ENUMERATED { initiating-message(0), successful-outcome(1), unsuccessful-outcome(2) }
+
+-- **************************************************************
+-- Elementary Procedures
+-- **************************************************************
+
+NGAP-ELEMENTARY-PROCEDURE ::= CLASS {
+    &InitiatingMessage,
+    &SuccessfulOutcome OPTIONAL,
+    &UnsuccessfulOutcome OPTIONAL,
+    &procedureCode ProcedureCode UNIQUE,
+    &criticality Criticality DEFAULT ignore
+}
+WITH SYNTAX {
+    INITIATING MESSAGE &InitiatingMessage
+    [SUCCESSFUL OUTCOME &SuccessfulOutcome]
+    [UNSUCCESSFUL OUTCOME &UnsuccessfulOutcome]
+    PROCEDURE CODE &procedureCode
+    [CRITICALITY &criticality]
+}
+
+-- **************************************************************
+-- PDU Definitions
+-- **************************************************************
+
+NGAP-PDU ::= CHOICE {
+    initiatingMessage InitiatingMessage,
+    successfulOutcome SuccessfulOutcome,
+    unsuccessfulOutcome UnsuccessfulOutcome,
+    ...
+}
+
+InitiatingMessage ::= SEQUENCE {
+    procedureCode ProcedureCode,
+    criticality Criticality,
+    value InitiatingMessageValue
+}
+
+SuccessfulOutcome ::= SEQUENCE {
+    procedureCode ProcedureCode,
+    criticality Criticality,
+    value SuccessfulOutcomeValue
+}
+
+UnsuccessfulOutcome ::= SEQUENCE {
+    procedureCode ProcedureCode,
+    criticality Criticality,
+    value UnsuccessfulOutcomeValue
+}
+
+InitiatingMessageValue ::= CHOICE {
+    nGSetupRequest NGSetupRequest,
+    initialUEMessage InitialUEMessage,
+    downlinkNASTransport DownlinkNASTransport,
+    uplinkNASTransport UplinkNASTransport,
+    ...
+}
+
+SuccessfulOutcomeValue ::= CHOICE {
+    nGSetupResponse NGSetupResponse,
+    initialContextSetupResponse InitialContextSetupResponse,
+    ...
+}
+
+UnsuccessfulOutcomeValue ::= CHOICE {
+    nGSetupFailure NGSetupFailure,
+    initialContextSetupFailure InitialContextSetupFailure,
+    ...
+}
+
+-- **************************************************************
+-- Information Element Definitions
+-- **************************************************************
+
+ProtocolIE-Container ::= SEQUENCE (SIZE(0..maxProtocolIEs)) OF ProtocolIE-Field
+
+ProtocolIE-Field ::= SEQUENCE {
+    id ProtocolIE-ID,
+    criticality Criticality,
+    value ANY
+}
+
+-- **************************************************************
+-- Common IEs
+-- **************************************************************
+
+AMF-UE-NGAP-ID ::= INTEGER (0..1099511627775)
+
+RAN-UE-NGAP-ID ::= INTEGER (0..4294967295)
+
+Cause ::= CHOICE {
+    radioNetwork CauseRadioNetwork,
+    transport CauseTransport,
+    nas CauseNas,
+    protocol CauseProtocol,
+    misc CauseMisc,
+    ...
+}
+
+CauseRadioNetwork ::= ENUMERATED {
+    unspecified(0),
+    txnrelocoverall-expiry(1),
+    successful-handover(2),
+    release-due-to-ngran-generated-reason(3),
+    handover-cancelled(4),
+    partial-handover(5),
+    ho-failure-in-target-5GC-ngran-node-or-target-system(6),
+    ho-target-not-allowed(7),
+    tngrelocoverall-expiry(8),
+    tngrelocprep-expiry(9),
+    cell-not-available(10),
+    unknown-targetID(11),
+    no-radio-resources-available-in-target-cell(12),
+    unknown-local-UE-NGAP-ID(13),
+    inconsistent-remote-UE-NGAP-ID(14),
+    handover-desirable-for-radio-reason(15),
+    time-critical-handover(16),
+    resource-optimisation-handover(17),
+    reduce-load-in-serving-cell(18),
+    user-inactivity(19),
+    radio-connection-with-ue-lost(20),
+    radio-resources-not-available(21),
+    invalid-qos-combination(22),
+    failure-in-radio-interface-procedure(23),
+    interaction-with-other-procedure(24),
+    unknown-PDU-session-ID(25),
+    unkown-qos-flow-ID(26),
+    multiple-PDU-session-ID-instances(27),
+    multiple-qos-flow-ID-instances(28),
+    encryption-and-or-integrity-protection-algorithms-not-supported(29),
+    ng-intra-system-handover-triggered(30),
+    ng-inter-system-handover-triggered(31),
+    xn-handover-triggered(32),
+    not-supported-5QI-value(33),
+    ue-context-transfer(34),
+    ims-voice-eps-fallback-or-rat-fallback-triggered(35),
+    up-integrity-protection-not-possible(36),
+    up-confidentiality-protection-not-possible(37),
+    slice-not-supported(38),
+    ue-in-rrc-inactive-state-not-reachable(39),
+    redirection(40),
+    resources-not-available-for-the-slice(41),
+    ue-max-integrity-protected-data-rate-reason(42),
+    release-due-to-cn-detected-mobility(43),
+    n26-interface-not-available(44),
+    release-due-to-pre-emption(45),
+    ...
+}
+
+CauseTransport ::= ENUMERATED {
+    transport-resource-unavailable(0),
+    unspecified(1),
+    ...
+}
+
+CauseNas ::= ENUMERATED {
+    normal-release(0),
+    authentication-failure(1),
+    deregister(2),
+    unspecified(3),
+    ...
+}
+
+CauseProtocol ::= ENUMERATED {
+    transfer-syntax-error(0),
+    abstract-syntax-error-reject(1),
+    abstract-syntax-error-ignore-and-notify(2),
+    message-not-compatible-with-receiver-state(3),
+    semantic-error(4),
+    abstract-syntax-error-falsely-constructed-message(5),
+    unspecified(6),
+    ...
+}
+
+CauseMisc ::= ENUMERATED {
+    control-processing-overload(0),
+    not-enough-user-plane-processing-resources(1),
+    hardware-failure(2),
+    om-intervention(3),
+    unknown-PLMN(4),
+    unspecified(5),
+    ...
+}
+
+-- **************************************************************
+-- Message Definitions
+-- **************************************************************
+
+NGSetupRequest ::= SEQUENCE {
+    protocolIEs ProtocolIE-Container OPTIONAL,
+    ...
+}
+
+NGSetupResponse ::= SEQUENCE {
+    protocolIEs ProtocolIE-Container OPTIONAL,
+    ...
+}
+
+NGSetupFailure ::= SEQUENCE {
+    protocolIEs ProtocolIE-Container OPTIONAL,
+    ...
+}
+
+InitialUEMessage ::= SEQUENCE {
+    protocolIEs ProtocolIE-Container OPTIONAL,
+    ...
+}
+
+DownlinkNASTransport ::= SEQUENCE {
+    protocolIEs ProtocolIE-Container OPTIONAL,
+    ...
+}
+
+UplinkNASTransport ::= SEQUENCE {
+    protocolIEs ProtocolIE-Container OPTIONAL,
+    ...
+}
+
+InitialContextSetupResponse ::= SEQUENCE {
+    protocolIEs ProtocolIE-Container OPTIONAL,
+    ...
+}
+
+InitialContextSetupFailure ::= SEQUENCE {
+    protocolIEs ProtocolIE-Container OPTIONAL,
+    ...
+}
+
+-- **************************************************************
+-- Constants
+-- **************************************************************
+
+maxProtocolIEs INTEGER ::= 65535
+
+-- Procedure Code Constants
+id-NGSetup ProcedureCode ::= 21
+id-InitialUEMessage ProcedureCode ::= 15
+id-DownlinkNASTransport ProcedureCode ::= 4
+id-UplinkNASTransport ProcedureCode ::= 46
+id-InitialContextSetup ProcedureCode ::= 14
+
+-- **************************************************************
+-- Common Data Types
+-- **************************************************************
+
+ANY ::= OCTET STRING
+
+END

@@ -65,16 +65,23 @@ class PCAPAnalyzerCLI:
         for dir_path in dirs:
             os.makedirs(dir_path, exist_ok=True)
     
-    def process_pcaps(self, input_dir: str, output_file: str, mapping_file: str = None) -> None:
+    def process_pcaps(self, input_dir: str, output_file: str, mapping_file: str = None, ngap_schema_path: str = None) -> None:
         """Process PCAP files and extract features.
         
         Args:
             input_dir: Directory containing PCAP files
             output_file: Path to save processed features
             mapping_file: Optional path to CSV file mapping PCAP filenames to labels
+            ngap_schema_path: Optional path to NGAP ASN.1 schema file
         """
         logger.info(f"Processing PCAPs from {input_dir}")
         
+        # Update config with NGAP schema path if provided
+        if ngap_schema_path:
+            if 'ngap' not in self.config:
+                self.config['ngap'] = {}
+            self.config['ngap']['asn1_schema_path'] = ngap_schema_path
+            logger.info(f"Using NGAP schema: {ngap_schema_path}")
                 
         processor = PCAPProcessor(self.config, mapping_file=mapping_file)
         processor.process_directory(input_dir, output_file)
@@ -187,6 +194,7 @@ def main():
     process_parser.add_argument('input_dir', help='Directory containing PCAP files')
     process_parser.add_argument('--output', required=True, help='Path to save processed features')
     process_parser.add_argument('--mapping', help='Path to CSV file mapping PCAP filenames to labels')
+    process_parser.add_argument('--ngap-schema', help='Path to NGAP ASN.1 schema file for enhanced NGAP decoding')
     
     # Train command
     train_parser = subparsers.add_parser('train', help='Train the classification model')
@@ -210,7 +218,7 @@ def main():
         
     if args.command == 'process':
         cli = PCAPAnalyzerCLI()
-        cli.process_pcaps(args.input_dir, args.output, args.mapping)
+        cli.process_pcaps(args.input_dir, args.output, args.mapping, getattr(args, 'ngap_schema', None))
     elif args.command == 'train':
         cli = PCAPAnalyzerCLI()
         cli.train_model(args.features_file, args.output_dir)

@@ -34,6 +34,13 @@ A Proof of Concept (PoC) for analyzing 5G Core PCAP files to classify success/fa
 
 - Python 3.12.6
 - `uv` package manager (alternative to pip)
+- **NGAP ASN.1 Schema**: Required for accurate NGAP message parsing
+
+## NGAP Schema Setup
+
+The tool requires an NGAP ASN.1 schema file for proper NGAP message decoding. A simplified schema is provided at `pcap_analyzer/schemas/ngap.asn`.
+
+For production use, you can replace this with the official 3GPP TS 38.413 NGAP ASN.1 schema.
 
 ## Virtual Environment Setup
 
@@ -86,7 +93,7 @@ The tool provides three main commands:
 Extract features from PCAP files in a directory:
 
 ```bash
-python -m pcap_analyzer.cli process data/raw_pcaps/ --output data/processed/features.json --mapping data/mapping.csv
+python -m pcap_analyzer.cli process data/raw_pcaps/ --output data/processed/features.json --mapping data/mapping.csv --ngap-schema pcap_analyzer/schemas/ngap.asn
 ```
 
 ### 2. Train the Model

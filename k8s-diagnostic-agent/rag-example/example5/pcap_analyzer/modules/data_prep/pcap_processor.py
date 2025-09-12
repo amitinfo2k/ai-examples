@@ -3,9 +3,14 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List
+import subprocess
 import numpy as np
 from scapy.all import rdpcap, IP, TCP, UDP, SCTP, Raw, ICMP, SCTPChunkData
 from sentence_transformers import SentenceTransformer
+try:
+    import pyshark  # Optional, used for robust NGAP/NAS fallback parsing
+except Exception:  # pragma: no cover
+    pyshark = None
 import pandas as pd
 from tqdm import tqdm
 from scapy.contrib.gtp import GTP_U_Header
@@ -90,7 +95,8 @@ class PCAPProcessor:
                 'pfcp_node_capacity': {},      # Track node load indicators
                 # Enhanced: NGAP stats
                 'ngap_procedure_types': [],  # e.g., 'InitialUEMessage', 'AuthenticationRequest', 'SetupRequest'
-                'ngap_message_types': [],    # Specific NGAP message type codes
+                'ngap_message_types': [],    # Specific NGAP message type codes (numeric 0/1/2)
+                'ngap_message_types_names': [],  # Human-readable types from pyshark (strings)
                 'ngap_cause_codes': [],     # For reject/error messages
                 'ngap_detailed_causes': [], # (category, value) tuples if available
                 'ngap_amf_ue_ngap_id': [], # Track UE context
@@ -115,6 +121,11 @@ class PCAPProcessor:
                 'network_load_indicators': [], # Track congestion/load
                 'security_violations': [],    # Track security issues
                 'compliance_issues': [],      # Track 3GPP compliance
+                'specific_5g_issues': [],     # Detailed 5G protocol-specific issues
+                # Pyshark-driven 5G enrichment
+                'nas_messages': [],           # NAS 5GS message types via dissector
+                'reject_causes': [],          # NAS/NGAP reject causes via dissector
+                'ngap_retransmissions': 0,    # SCTP retransmit count via dissector
             }
             
             prev_time = None
@@ -383,10 +394,28 @@ class PCAPProcessor:
                 if 1 in features['pfcp_message_types'] and 2 in features['pfcp_message_types']:
                     features['pfcp_heartbeat_only'] = True
 
+            # Deep 5G parsing via pyshark before building description/embedding
+            try:
+                if pyshark is not None:
+                    self._pyshark_extract_5g_features(pcap_path, features)
+            except Exception:
+                pass
+
             # Generate text description for RAG
             description = self._generate_description(features)
             features['description'] = description
             
+            # Legacy pyshark enrichment (string-based) as an additional best-effort
+            try:
+                if pyshark is not None and features.get('ngap_registration_status') != 'failed':
+                    self._pyshark_enrich_ngap(pcap_path, features)
+            except Exception:
+                # Best-effort fallback; ignore errors
+                pass
+
+            # Provide a focused RAG query template to guide LLM reasoning
+            features['rag_query'] = self._build_rag_query(features)
+
             # Generate embedding for RAG
             features['embedding'] = self.embedding_model.encode(description).tolist()
 
@@ -539,6 +568,12 @@ class PCAPProcessor:
             elif features.get('protocol_handshake_completion', {}).get('ngap_initial_context_setup') == 'incomplete':
                 desc.append("NGAP_INITIAL_CONTEXT_SETUP_INCOMPLETE")
         
+        # Specific 5G protocol issues
+        if features.get('specific_5g_issues'):
+            for issue in features['specific_5g_issues']:
+                issue_desc = f"5G_ISSUE: {issue['type']} (Cause {issue['cause_code']}) - {issue['description']} [{issue['component']}]"
+                desc.append(issue_desc)
+        
         # Timing and sequence analysis
         if features.get('timing_anomalies'):
             desc.append(f"Timing anomalies: {len(features['timing_anomalies'])}")
@@ -553,6 +588,36 @@ class PCAPProcessor:
         
         return " ".join(desc)
     
+    def _build_rag_query(self, features: Dict) -> str:
+        """Construct a focused RAG retrieval query highlighting NGAP/NAS reject indicators."""
+        ngap_msgs = []
+        try:
+            for m in features.get('ngap_messages', []):
+                if isinstance(m, dict):
+                    mt = m.get('message_type')
+                    pc = m.get('procedure_code')
+                    ngap_msgs.append(str(mt) if pc is None else f"{mt}_{pc}")
+                else:
+                    ngap_msgs.append(str(m))
+        except Exception:
+            pass
+        nas_msgs = [str(x) for x in features.get('nas_messages', [])]
+        causes = [str(c) for c in features.get('ngap_cause_codes', [])]
+        # Include NAS/NGAP reject_causes if present from pyshark
+        extra_causes = [str(c) for c in features.get('reject_causes', [])]
+        if extra_causes:
+            causes.extend(extra_causes)
+        status = features.get('ngap_registration_status') or 'unknown'
+        avg_t = features.get('avg_timing', 0)
+        retrans = features.get('ngap_retransmissions', 0)
+        return (
+            f"Analyze this 5G PCAP for registration issues: NGAP messages: {ngap_msgs}, "
+            f"NAS messages: {nas_msgs}, reject causes present: {causes}, sequence status: {status}, "
+            f"average packet timing: {avg_t:.3f}s, retransmissions: {retrans}. Focus on detecting rejects "
+            f"(e.g., NGAP Cause >0, NAS Registration Reject 5GS cause like 15 for 'no suitable cells') vs. accepts "
+            f"(Registration Accept + UE Context Setup)."
+        )
+
     def _load_label_mapping(self, mapping_file: str) -> None:
         """Load label mapping from CSV file.
         
@@ -573,20 +638,299 @@ class PCAPProcessor:
                         label = parts[1]
                         self.label_map[filename] = label
                         self.logger.debug(f"Mapped '{filename}' to label: {label}")
-                    
-            self.logger.info(f"Successfully loaded {len(self.label_map)} label mappings from {mapping_file}")
-            
-            # Debug: Log the loaded mappings
-            if self.label_map:
-                self.logger.debug("Loaded mappings:")
-                for filename, label in self.label_map.items():
-                    self.logger.debug(f"  {filename} -> {label}")
-            else:
-                self.logger.warning("No label mappings were loaded from the file")
-                
         except Exception as e:
-            self.logger.error(f"Failed to load label mapping from {mapping_file}: {str(e)}")
-            self.label_map = {}
+            self.logger.warning(f"Failed to load mapping file {mapping_file}: {e}")
+
+    def _pyshark_extract_5g_features(self, pcap_path: str, features: Dict) -> None:
+        """Parse NGAP/NAS using pyshark for accurate 5G control-plane extraction.
+        Captures message types, reject causes, and simple sequence completion.
+        """
+        if pyshark is None:
+            return
+        # Quick guard using tshark probe
+        if not self._pcap_supported_by_tshark(pcap_path):
+            self.logger.warning("Pyshark/tshark cannot parse this PCAP's link type; skipping pyshark extraction for this file.")
+            return
+        # Focus on NGAP over SCTP (38412) and NAS-5GS
+        display = 'ngap || nas-5gs || sctp.port == 38412'
+        cap = None
+        try:
+            cap = pyshark.FileCapture(pcap_path, display_filter=display, only_summaries=False)
+            prev_ts = None
+            reg_started = False
+            reg_accepted = False
+            reg_rejected = False
+            sctp_seq_seen = set()
+            # Load incrementally to avoid memory blow-up on large pcaps
+            for pkt in cap:
+                try:
+                    # Timings (pyshark exposes sniff_timestamp)
+                    try:
+                        ts = float(getattr(pkt, 'sniff_timestamp', None) or 0.0)
+                    except Exception:
+                        ts = None
+                    if ts is not None and prev_ts is not None and ts >= prev_ts:
+                        features['timings'].append(ts - prev_ts)
+                    if ts is not None:
+                        prev_ts = ts
+
+                    # NGAP
+                    if hasattr(pkt, 'ngap') and pkt.ngap:
+                        # Message type/procedure code names vary; capture generically
+                        # Prefer pretty showname if available; otherwise map numeric to descriptive label
+                        pc = getattr(pkt.ngap, 'procedure_code', None)
+                        pretty = None
+                        try:
+                            # Common pyshark/tshark pretty fields
+                            pretty = getattr(pkt.ngap, 'ngap_pdu_showname', None) or getattr(pkt.ngap, 'type_of_message_showname', None)
+                        except Exception:
+                            pretty = None
+                        if not pretty:
+                            mt_val = None
+                            try:
+                                mt_val = getattr(pkt.ngap, 'type_of_message', None)
+                            except Exception:
+                                mt_val = None
+                            if mt_val is None:
+                                try:
+                                    mt_val = getattr(pkt.ngap, 'ngap_pdu', None)
+                                except Exception:
+                                    mt_val = None
+                            # Normalize to int when possible
+                            mt_int = None
+                            try:
+                                if mt_val is not None:
+                                    mt_int = int(str(mt_val))
+                            except Exception:
+                                mt_int = None
+                            if mt_int in (0, 1, 2):
+                                label = {0: 'initiatingMessage', 1: 'successfulOutcome', 2: 'unsuccessfulOutcome'}[mt_int]
+                                pretty = f"NGAP-PDU: {label} ({mt_int})"
+                            elif mt_val is not None:
+                                pretty = str(mt_val)
+                        try:
+                            if pretty:
+                                features['ngap_message_types_names'].append(str(pretty))
+                        except Exception:
+                            pass
+                        if pc is not None:
+                            features['ngap_procedure_types'].append(str(pc))
+
+                        # Registration flow hints
+                        text = str(pkt.ngap).lower()
+                        if 'initial ue message' in text or 'initial_ue_message' in text:
+                            reg_started = True
+                        if 'ue context setup response' in text or 'registration accept' in text:
+                            reg_accepted = True
+
+                        # Cause IEs (any category) - only for actual rejection messages
+                        text = str(pkt.ngap).lower()
+                        is_rejection_message = ('registration reject' in text or 
+                                              'initial context setup failure' in text or
+                                              'ue context release' in text or
+                                              'ngap setup failure' in text)
+                        
+                        if is_rejection_message:
+                            for f in getattr(pkt.ngap, 'field_names', []):
+                                if f.startswith('cause') or 'cause' in f:
+                                    try:
+                                        val = getattr(pkt.ngap, f)
+                                        if val is not None:
+                                            # Normalize numeric if possible
+                                            try:
+                                                cv = int(str(val))
+                                            except Exception:
+                                                continue
+                                            features['ngap_cause_codes'].append(cv)
+                                            features['reject_causes'].append(cv)
+                                            reg_rejected = True
+                                    except Exception:
+                                        continue
+
+                        # Retransmission via SCTP sequence duplicate
+                        if hasattr(pkt, 'sctp') and hasattr(pkt.sctp, 'tsn'):
+                            try:
+                                seq = int(pkt.sctp.tsn)
+                                if seq in sctp_seq_seen:
+                                    features['ngap_retransmissions'] += 1
+                                sctp_seq_seen.add(seq)
+                            except Exception:
+                                pass
+
+                    # NAS-5GS layer
+                    if hasattr(pkt, 'nas_5gs') and pkt.nas_5gs:
+                        # Try to extract 5GMM message type and detect rejects
+                        try:
+                            mm = getattr(pkt.nas_5gs, 'mm', None)
+                            msg_t = None
+                            if mm is not None and hasattr(mm, 'message_type'):
+                                msg_t = str(mm.message_type)
+                            else:
+                                # Fallback to any recognizable field
+                                msg_t = getattr(pkt.nas_5gs, 'message_type', None)
+                            if msg_t is not None:
+                                features['nas_messages'].append(str(msg_t))
+                        except Exception:
+                            pass
+
+                        # Registration Reject detection
+                        low = str(pkt.nas_5gs).lower()
+                        if 'registration reject' in low or 'registration_reject' in low:
+                            # 5GS cause field name can differ across versions
+                            cause_fields = [
+                                'mm_5gs_cause',
+                                'registration_reject_5gs_cause',
+                                '5gmm.cause',
+                                'nas_5gs.mm.5gmm.cause'
+                            ]
+                            cause_val = None
+                            for cf in cause_fields:
+                                try:
+                                    parts = cf.split('.')
+                                    obj = pkt
+                                    for p in parts:
+                                        if not hasattr(obj, p.replace('5gmm', 'mm')):
+                                            obj = None
+                                            break
+                                        obj = getattr(obj, p.replace('5gmm', 'mm'))
+                                    if obj is not None:
+                                        try:
+                                            cause_val = int(str(obj))
+                                            break
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    continue
+                            if cause_val is not None:
+                                features['reject_causes'].append(int(cause_val))
+                            reg_rejected = True
+
+                except Exception:
+                    continue
+            # Finalize status
+            if reg_rejected:
+                features['ngap_registration_status'] = 'failed'
+                if 'Registration_Rejection' not in features['failure_scenarios']:
+                    features['failure_scenarios'].append('Registration_Rejection')
+                if 'NAS_Registration_Rejection' not in features['errors']:
+                    features['errors'].append('NAS_Registration_Rejection')
+            elif reg_accepted:
+                if not features.get('ngap_registration_status'):
+                    features['ngap_registration_status'] = 'success'
+            elif reg_started:
+                if not features.get('ngap_registration_status'):
+                    features['ngap_registration_status'] = 'partial'
+
+        except Exception as e:
+            # Silent best-effort; handle unsupported link-layer early
+            err = str(e)
+            if 'network type' in err and 'unknown or unsupported' in err:
+                self.logger.warning("Pyshark/tshark cannot parse this PCAP's link type; skipping pyshark extraction for this file.")
+            return
+        finally:
+            if cap is not None:
+                try:
+                    cap.close()
+                except Exception:
+                    pass
+
+    def _pyshark_enrich_ngap(self, pcap_path: str, features: Dict) -> None:
+        """Best-effort enrichment using pyshark (tshark dissectors).
+        Detect DownlinkNASTransport with Registration Reject and Illegal UE cause
+        when byte-level parsing missed it. No-op if pyshark is unavailable.
+        """
+        if pyshark is None:
+            return
+        # Quick guard using tshark probe
+        if not self._pcap_supported_by_tshark(pcap_path):
+            self.logger.warning("Pyshark/tshark cannot parse this PCAP's link type; skipping pyshark enrichment for this file.")
+            return
+        capture = None
+        try:
+            capture = pyshark.FileCapture(pcap_path, display_filter='ngap || nas-5gs', use_json=True)
+            for pkt in capture:
+                try:
+                    raw_str = str(pkt)
+                    low = raw_str.lower()
+                    if ('registration reject' in low or 'registration_reject' in low) and ('nas-5gs' in low or 'nas_5gs' in low or 'ngap' in low):
+                        cause_code = None
+                        # Try a few common patterns
+                        import re
+                        m = re.search(r'cause[^0-9]*(\d+)', low)
+                        if m:
+                            try:
+                                cause_code = int(m.group(1))
+                            except Exception:
+                                cause_code = None
+                        if cause_code is None:
+                            # Try to parse key=value style
+                            m = re.search(r'5gmm\.cause\s*[:=]\s*(\d+)', low)
+                            if m:
+                                try:
+                                    cause_code = int(m.group(1))
+                                except Exception:
+                                    cause_code = None
+                        if cause_code is None:
+                            # Default to Illegal UE if text mentions it
+                            if 'illegal ue' in low:
+                                cause_code = 3
+                        if cause_code is not None:
+                            features['ngap_registration_status'] = 'failed'
+                            if 'NAS_Registration_Rejection' not in features['errors']:
+                                features['errors'].append('NAS_Registration_Rejection')
+                            indicator = f"NAS_Registration_Reject_Cause_{cause_code}"
+                            if indicator not in features['root_cause_indicators']:
+                                features['root_cause_indicators'].append(indicator)
+                            # Add specific 5G issue block
+                            issue_desc_map = {3: 'Illegal UE', 6: 'Illegal ME', 11: 'PLMN not allowed', 12: 'Tracking area not allowed'}
+                            features['specific_5g_issues'].append({
+                                'type': 'Registration_Reject',
+                                'cause_code': cause_code,
+                                'description': issue_desc_map.get(cause_code, f'Cause {cause_code}'),
+                                'severity': 'high' if cause_code in [3, 6] else 'medium',
+                                'component': 'AMF'
+                            })
+                            break
+                except Exception:
+                    continue
+        except Exception as e:
+            # Ignore pyshark failures silently; this is a best-effort enrichment
+            err = str(e)
+            if 'network type' in err and 'unknown or unsupported' in err:
+                self.logger.warning("Pyshark/tshark cannot parse this PCAP's link type; skipping pyshark enrichment for this file.")
+            return
+        finally:
+            if capture is not None:
+                try:
+                    capture.close()
+                except Exception:
+                    pass
+
+    def _pcap_supported_by_tshark(self, pcap_path: str) -> bool:
+        """Check with tshark whether the PCAP link type is supported.
+        Returns False for known unsupported encap types (e.g., 276 on older tshark).
+        """
+        try:
+            proc = subprocess.run([
+                'tshark', '-r', pcap_path, '-T', 'fields', '-e', 'frame.encap_type', '-c', '1'
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            if proc.returncode != 0:
+                err = (proc.stderr or '').lower()
+                if 'unknown or unsupported' in err or 'not a capture file' in err or "couldn't open" in err:
+                    return False
+                return True
+            out = (proc.stdout or '').strip()
+            if out:
+                try:
+                    encap = int(out.splitlines()[0].strip())
+                    if encap == 276:
+                        return False
+                except Exception:
+                    pass
+            return True
+        except Exception:
+            return True
+
     
     def process_directory(self, input_dir: str, output_file: str) -> None:
         """Process all PCAPs in a directory and save features to a file.
@@ -675,37 +1019,182 @@ class PCAPProcessor:
             else:
                 self.logger.warning("No NGAP payload found in packet")
             
-            # Enhanced NGAP parsing - try multiple parsing approaches
+            # Enhanced NGAP parsing using ASN.1 decoder first, then fallback methods
             if len(payload_bytes) >= 2:
-                # Method 1: Look for NG Setup procedure codes first (21 = id-NGSetup)
-                for i in range(min(len(payload_bytes) - 1, 32)):  # Check first 32 bytes
-                    if i + 1 < len(payload_bytes):
-                        potential_proc = int.from_bytes(payload_bytes[i:i+2], 'big')
-                        if potential_proc == 21:  # id-NGSetup
-                            ngap_info['procedure_code'] = potential_proc
-                            self.logger.debug(f"Found NG Setup procedure code {potential_proc} at position {i}")
-                            break
-                # Do not early-return on NGSetup; continue to parse NAS messages too
+                # Method 1: Try ASN.1 decoder first if available
+                if self.ngap_decoder.is_available():
+                    try:
+                        decoded = self.ngap_decoder.decode_pdu(payload_bytes)
+                        if decoded:
+                            extracted = self.ngap_decoder.extract_basic_fields(decoded)
+                            if extracted.get('procedure_code') is not None:
+                                ngap_info['procedure_code'] = extracted['procedure_code']
+                                ngap_info['message_type'] = extracted.get('message_type')
+                                ngap_info['amf_ue_ngap_id'] = extracted.get('amf_ue_ngap_id')
+                                ngap_info['ran_ue_ngap_id'] = extracted.get('ran_ue_ngap_id')
+                                if extracted.get('cause'):
+                                    ngap_info['cause_code'] = f"{extracted['cause']['category']}:{extracted['cause']['value']}"
+                                self.logger.debug(f"ASN.1 decoded NGAP procedure code: {extracted['procedure_code']}")
+                                return ngap_info  # Return early if ASN.1 decoding succeeded
+                    except Exception as e:
+                        self.logger.debug(f"ASN.1 decoding failed, using fallback: {e}")
                 
-                # Method 2: Look for other NGAP procedure codes
+                # Method 1.5: Try to extract UE NGAP IDs from payload using simple pattern matching
+                try:
+                    # Look for AMF-UE-NGAP-ID and RAN-UE-NGAP-ID patterns in payload
+                    for i in range(len(payload_bytes) - 8):
+                        # AMF-UE-NGAP-ID is typically 5 bytes (40-bit integer)
+                        if i + 5 < len(payload_bytes):
+                            # Check for patterns that might indicate UE IDs
+                            potential_amf_id = int.from_bytes(payload_bytes[i:i+5], 'big')
+                            if 0 < potential_amf_id < 0xFFFFFFFFFF:  # Valid range for AMF UE NGAP ID
+                                # Validate by checking surrounding bytes
+                                if i > 2 and payload_bytes[i-1] in [0x00, 0x01, 0x02, 0x0A]:  # Common IE ID patterns
+                                    ngap_info['amf_ue_ngap_id'] = potential_amf_id
+                                    break
+                        
+                        # RAN-UE-NGAP-ID is typically 4 bytes (32-bit integer)
+                        if i + 4 < len(payload_bytes):
+                            potential_ran_id = int.from_bytes(payload_bytes[i:i+4], 'big')
+                            if 0 < potential_ran_id < 0xFFFFFFFF:  # Valid range for RAN UE NGAP ID
+                                # Validate by checking surrounding bytes
+                                if i > 2 and payload_bytes[i-1] in [0x55, 0x85]:  # Common IE ID for RAN-UE-NGAP-ID
+                                    ngap_info['ran_ue_ngap_id'] = potential_ran_id
+                                    break
+                except Exception as e:
+                    self.logger.debug(f"UE ID extraction failed: {e}")
+                
+                # Method 2: Improved NGAP procedure code extraction
                 if ngap_info['procedure_code'] is None:
-                    for i in range(min(len(payload_bytes) - 1, 16)):  # Check first 16 bytes
-                        if i + 1 < len(payload_bytes):
-                            potential_proc = int.from_bytes(payload_bytes[i:i+2], 'big')
-                            if potential_proc in [1, 2, 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]:
-                                ngap_info['procedure_code'] = potential_proc
-                                if i + 2 < len(payload_bytes):
-                                    ngap_info['message_type'] = payload_bytes[i + 2]
+                    # Known NGAP procedure codes including all from tshark output
+                    known_procedures = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65]
+                    
+                    # Try to parse NGAP PDU structure more accurately
+                    try:
+                        # NGAP messages typically start with choice tag and length
+                        offset = 0
+                        if len(payload_bytes) > 8:
+                            # Skip initial bytes to find procedure code
+                            # NGAP structure: [choice][length][procedure_code][criticality][value]
+                            for start_pos in range(min(8, len(payload_bytes) - 2)):
+                                if start_pos + 1 < len(payload_bytes):
+                                    # Check single byte procedure codes first
+                                    potential_proc = payload_bytes[start_pos]
+                                    if potential_proc in known_procedures:
+                                        # Validate by checking if next byte could be criticality (0-2)
+                                        if start_pos + 1 < len(payload_bytes):
+                                            next_byte = payload_bytes[start_pos + 1]
+                                            if next_byte <= 2 or next_byte in [0x40, 0x80]:  # Common criticality values
+                                                ngap_info['procedure_code'] = potential_proc
+                                                # Determine message type from earlier bytes
+                                                for msg_type_pos in range(max(0, start_pos-8), start_pos):
+                                                    if payload_bytes[msg_type_pos] in [0x00, 0x01, 0x02]:
+                                                        ngap_info['message_type'] = payload_bytes[msg_type_pos]
+                                                        break
+                                                self.logger.debug(f"Found NGAP procedure code {potential_proc} at position {start_pos}")
+                                                break
+                                    
+                                    # Check two-byte procedure codes for larger values
+                                    if start_pos + 2 < len(payload_bytes):
+                                        potential_proc_2byte = int.from_bytes(payload_bytes[start_pos:start_pos+2], 'big')
+                                        if potential_proc_2byte in known_procedures:
+                                            ngap_info['procedure_code'] = potential_proc_2byte
+                                            self.logger.debug(f"Found 2-byte NGAP procedure code {potential_proc_2byte} at position {start_pos}")
+                                            break
+                    except Exception as e:
+                        self.logger.debug(f"Structured parsing failed: {e}")
+                    
+                    # Fallback: Simple search through payload
+                    if ngap_info['procedure_code'] is None:
+                        for i in range(min(len(payload_bytes), 20)):
+                            if payload_bytes[i] in known_procedures:
+                                ngap_info['procedure_code'] = payload_bytes[i]
+                                # Try to determine message type from payload structure
+                                if i > 0:
+                                    # Look for NGAP choice tags near the procedure code
+                                    for j in range(max(0, i-5), min(len(payload_bytes), i+5)):
+                                        if payload_bytes[j] in [0x00, 0x01, 0x02]:
+                                            ngap_info['message_type'] = payload_bytes[j]
+                                            break
+                                self.logger.debug(f"Fallback found NGAP procedure code {payload_bytes[i]} at position {i}")
                                 break
                 
-                # Method 3: Standard NGAP format (Protocol Discriminator + Procedure Code + Message Type)
-                if ngap_info['procedure_code'] is None and len(payload_bytes) >= 4:
-                    protocol_discriminator = payload_bytes[0]
-                    if protocol_discriminator == 0x00:
-                        procedure_code = int.from_bytes(payload_bytes[1:3], 'big')
-                        message_type = payload_bytes[3]
-                        ngap_info['procedure_code'] = procedure_code
-                        ngap_info['message_type'] = message_type
+                # Method 3: Fallback - Try to parse NGAP PDU structure manually
+                if ngap_info['procedure_code'] is None and len(payload_bytes) >= 8:
+                    try:
+                        # Look for NGAP message patterns
+                        for offset in range(min(8, len(payload_bytes) - 4)):
+                            if offset + 3 < len(payload_bytes):
+                                # Check if this could be procedure code + criticality + value
+                                potential_proc = payload_bytes[offset]
+                                if potential_proc in known_procedures:
+                                    ngap_info['procedure_code'] = potential_proc
+                                    self.logger.debug(f"Pattern matching found NGAP procedure code: {potential_proc} at offset {offset}")
+                                    break
+                    except Exception as e:
+                        self.logger.debug(f"Pattern matching failed: {e}")
+                
+                # Method 4: Enhanced NAS message parsing for DownlinkNASTransport
+                if ngap_info.get('procedure_code') == 2:  # DownlinkNASTransport
+                    self.logger.debug("Processing DownlinkNASTransport - attempting NAS parsing")
+                    ngap_info = self._parse_nas_pdu(payload_bytes, ngap_info)
+                elif ngap_info.get('procedure_code') == 1:  # InitialUEMessage
+                    self.logger.debug("Processing InitialUEMessage - attempting NAS parsing")
+                    ngap_info = self._parse_nas_pdu(payload_bytes, ngap_info)
+                
+                # Method 5: Fallback - try to detect NAS messages even if procedure code not identified
+                # This is important because some NGAP messages might not be properly decoded
+                if ngap_info.get('procedure_code') is None or ngap_info.get('procedure_code') in [1, 2]:
+                    self.logger.debug("Attempting fallback NAS parsing for potential DownlinkNASTransport/InitialUEMessage")
+                    ngap_info = self._parse_nas_pdu(payload_bytes, ngap_info)
+                
+                # Method 6: Additional fallback - look for specific byte patterns that indicate DownlinkNASTransport
+                # Based on Wireshark analysis, look for patterns that suggest NAS transport
+                if ngap_info.get('procedure_code') is None and len(payload_bytes) > 20:
+                    # Look for patterns that might indicate DownlinkNASTransport
+                    # Check for common NGAP message patterns
+                    for i in range(min(len(payload_bytes) - 4, 20)):
+                        # Look for potential procedure code 2 (DownlinkNASTransport) in different positions
+                        if i + 1 < len(payload_bytes):
+                            potential_proc = int.from_bytes(payload_bytes[i:i+2], 'big')
+                            if potential_proc == 2:  # DownlinkNASTransport
+                                ngap_info['procedure_code'] = 2
+                                self.logger.debug(f"Found DownlinkNASTransport procedure code at position {i}")
+                                # Try NAS parsing
+                                ngap_info = self._parse_nas_pdu(payload_bytes, ngap_info)
+                                break
+
+                # Method 7: Deterministic NAS Registration Reject hex-scan (guarded)
+                # Only attempt on NGAP that can carry NAS: InitialUEMessage (1) or DownlinkNASTransport (2)
+                try:
+                    if (len(payload_bytes) >= 4 and not ngap_info.get('is_reject') and
+                        ngap_info.get('procedure_code') in (1, 2)):
+                        for scan_idx in range(0, len(payload_bytes) - 2):
+                            if payload_bytes[scan_idx] == 0x7e and payload_bytes[scan_idx + 1] == 0x44:
+                                ngap_info['is_reject'] = True
+                                ngap_info['nas_message_type'] = 'RegistrationReject'
+                                # Heuristic for cause code: try next few bytes
+                                possible_causes = []
+                                for off in (2, 3, 4, 5):
+                                    if scan_idx + off < len(payload_bytes):
+                                        possible_causes.append(payload_bytes[scan_idx + off])
+                                # Prefer known 5GMM reject causes if present
+                                preferred = None
+                                for c in possible_causes:
+                                    if c in (3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16):
+                                        preferred = c
+                                        break
+                                cause_code = preferred if preferred is not None else possible_causes[0]
+                                ngap_info['cause_code'] = cause_code
+                                ngap_info['nas_cause_code'] = cause_code
+                                # Map a few common text descriptions
+                                cause_map = {3: 'Illegal UE', 6: 'Illegal ME', 11: 'PLMN not allowed', 12: 'Tracking area not allowed'}
+                                if cause_code in cause_map:
+                                    ngap_info['nas_cause_description'] = cause_map[cause_code]
+                                self.logger.info(f"Deterministic scan flagged Registration Reject, cause {cause_code}")
+                                break
+                except Exception:
+                    pass
                 
                 # Skip broad Initial Context Setup byte-pattern heuristic to avoid misclassification
                 
@@ -798,13 +1287,15 @@ class PCAPProcessor:
                         ngap_info['is_authentication'] = True
                     elif procedure_code in [11, 12, 13, 778, 779, 780]:  # Security
                         ngap_info['is_security'] = True
-                    elif procedure_code in [3, 4, 5, 773, 774, 775]:  # Initial Context Setup (UE Setup)
+                    elif procedure_code in [3, 773]:  # Initial Context Setup (UE Setup)
                         ngap_info['is_setup'] = True
                         ngap_info['is_ue_setup'] = True  # UE-specific setup
                     elif procedure_code in [21, 768, 769, 770]:  # NG Setup (gNB Setup) - 21 is id-NGSetup
                         ngap_info['is_setup'] = True
                         ngap_info['is_gnb_setup'] = True  # gNB-specific setup
-                    elif procedure_code in [5, 16, 18, 25, 26, 29, 31, 32, 35, 37, 39, 41, 43, 45, 47, 49, 770, 775, 783, 785, 788, 789]:  # Reject/Failure
+                    
+                    # Prefer outcome-based reject detection via message_type (unsuccessfulOutcome)
+                    if ngap_info.get('message_type') == 2:
                         ngap_info['is_reject'] = True
                     
                     # Enhanced cause code extraction for reject/failure messages
@@ -927,16 +1418,23 @@ class PCAPProcessor:
             Updated ngap_info with NAS parsing results
         """
         try:
-            # Look for NAS PDU in the payload
+            self.logger.debug(f"Parsing NAS PDU, payload length: {len(payload_bytes)}")
+            self.logger.debug(f"Payload hex: {payload_bytes[:64].hex() if len(payload_bytes) >= 64 else payload_bytes.hex()}")
+            
+            # Look for NAS PDU in the payload - try multiple patterns
+            # First, try to find the 5GMM protocol discriminator (0x7e)
             for i in range(len(payload_bytes) - 4):
-                # Look for NAS PDU start pattern
+                # Look for NAS PDU start pattern - 5GMM uses 0x7e
                 if (i + 3 < len(payload_bytes) and 
                     payload_bytes[i] == 0x7e):  # Extended protocol discriminator for 5GMM
+                    
+                    self.logger.debug(f"Found 5GMM protocol discriminator at position {i}")
                     
                     # Check for Registration Reject (0x44)
                     if (i + 1 < len(payload_bytes) and 
                         payload_bytes[i + 1] == 0x44):  # Registration Reject message type
                         
+                        self.logger.info("Found Registration Reject message")
                         ngap_info['is_reject'] = True
                         ngap_info['nas_message_type'] = 'RegistrationReject'
                         
@@ -945,6 +1443,8 @@ class PCAPProcessor:
                             cause_code = payload_bytes[i + 3]
                             ngap_info['cause_code'] = cause_code
                             ngap_info['nas_cause_code'] = cause_code
+                            
+                            self.logger.info(f"Found NAS cause code: {cause_code}")
                             
                             # Map common 5GMM cause codes
                             cause_descriptions = {
@@ -978,6 +1478,64 @@ class PCAPProcessor:
                             
                             if cause_code in cause_descriptions:
                                 ngap_info['nas_cause_description'] = cause_descriptions[cause_code]
+                                self.logger.info(f"NAS cause description: {cause_descriptions[cause_code]}")
+                        
+                        break
+            
+            # If no 5GMM pattern found, try alternative patterns
+            if not ngap_info.get('nas_message_type'):
+                self.logger.debug("No 5GMM pattern found, trying alternative NAS detection")
+                # Look for Registration Reject pattern without protocol discriminator
+                for i in range(len(payload_bytes) - 4):
+                    # Look for Registration Reject (0x44) directly
+                    if (i + 1 < len(payload_bytes) and 
+                        payload_bytes[i] == 0x44):  # Registration Reject message type
+                        
+                        self.logger.info("Found Registration Reject message (alternative pattern)")
+                        ngap_info['is_reject'] = True
+                        ngap_info['nas_message_type'] = 'RegistrationReject'
+                        
+                        # Look for 5GMM cause code (usually follows the message type)
+                        if i + 2 < len(payload_bytes):
+                            cause_code = payload_bytes[i + 2]
+                            ngap_info['cause_code'] = cause_code
+                            ngap_info['nas_cause_code'] = cause_code
+                            
+                            self.logger.info(f"Found NAS cause code (alternative): {cause_code}")
+                            
+                            # Map common 5GMM cause codes
+                            cause_descriptions = {
+                                3: 'Illegal UE',
+                                6: 'Illegal ME',
+                                7: '5GS services not allowed',
+                                8: '5GS services temporarily not allowed',
+                                9: 'UE identity cannot be derived by the network',
+                                10: 'Implicitly de-registered',
+                                11: 'PLMN not allowed',
+                                12: 'Tracking area not allowed',
+                                13: 'Roaming not allowed in this tracking area',
+                                14: 'No suitable cells in tracking area',
+                                15: '5GS services not allowed in this PLMN',
+                                16: '5GS services temporarily not allowed in this PLMN',
+                                17: '5GS services not allowed in this tracking area',
+                                18: '5GS services temporarily not allowed in this tracking area',
+                                19: '5GS services not allowed in this PLMN',
+                                20: '5GS services temporarily not allowed in this PLMN',
+                                21: '5GS services not allowed in this tracking area',
+                                22: '5GS services temporarily not allowed in this tracking area',
+                                23: '5GS services not allowed in this PLMN',
+                                24: '5GS services temporarily not allowed in this PLMN',
+                                25: '5GS services not allowed in this tracking area',
+                                26: '5GS services temporarily not allowed in this tracking area',
+                                27: '5GS services not allowed in this PLMN',
+                                28: '5GS services temporarily not allowed in this PLMN',
+                                29: '5GS services not allowed in this tracking area',
+                                30: '5GS services temporarily not allowed in this tracking area'
+                            }
+                            
+                            if cause_code in cause_descriptions:
+                                ngap_info['nas_cause_description'] = cause_descriptions[cause_code]
+                                self.logger.info(f"NAS cause description (alternative): {cause_descriptions[cause_code]}")
                         
                         break
                     
@@ -1076,15 +1634,53 @@ class PCAPProcessor:
                             if cause_code == 3:
                                 failure_patterns.append("NAS_Registration_Reject_Illegal_UE")
                                 root_cause_indicators.append("UE_Identity_Issue")
+                                # Add specific 5G protocol details
+                                features['specific_5g_issues'].append({
+                                    'type': 'Registration_Reject',
+                                    'cause_code': cause_code,
+                                    'description': 'Illegal UE',
+                                    'severity': 'high',
+                                    'component': 'AMF'
+                                })
                             elif cause_code == 6:
                                 failure_patterns.append("NAS_Registration_Reject_Illegal_ME")
                                 root_cause_indicators.append("ME_Identity_Issue")
+                                features['specific_5g_issues'].append({
+                                    'type': 'Registration_Reject',
+                                    'cause_code': cause_code,
+                                    'description': 'Illegal ME',
+                                    'severity': 'high',
+                                    'component': 'AMF'
+                                })
                             elif cause_code == 11:
                                 failure_patterns.append("NAS_Registration_Reject_PLMN_Not_Allowed")
                                 root_cause_indicators.append("PLMN_Access_Issue")
+                                features['specific_5g_issues'].append({
+                                    'type': 'Registration_Reject',
+                                    'cause_code': cause_code,
+                                    'description': 'PLMN not allowed',
+                                    'severity': 'medium',
+                                    'component': 'AMF'
+                                })
                             elif cause_code == 12:
                                 failure_patterns.append("NAS_Registration_Reject_Tracking_Area_Not_Allowed")
                                 root_cause_indicators.append("Tracking_Area_Access_Issue")
+                                features['specific_5g_issues'].append({
+                                    'type': 'Registration_Reject',
+                                    'cause_code': cause_code,
+                                    'description': 'Tracking area not allowed',
+                                    'severity': 'medium',
+                                    'component': 'AMF'
+                                })
+                            else:
+                                # Generic cause code handling
+                                features['specific_5g_issues'].append({
+                                    'type': 'Registration_Reject',
+                                    'cause_code': cause_code,
+                                    'description': msg.get('nas_cause_description', f'Unknown cause {cause_code}'),
+                                    'severity': 'medium',
+                                    'component': 'AMF'
+                                })
                         
                         # Update registration status
                         features['ngap_registration_status'] = 'failed'
@@ -1368,82 +1964,56 @@ class PCAPProcessor:
             String representation of the procedure
         """
         procedure_names = {
-            # Standard NGAP procedures (1-50)
-            1: 'InitialUEMessage',
-            2: 'DownlinkNASTransport',
-            3: 'InitialContextSetupRequest',
-            4: 'InitialContextSetupResponse',
-            5: 'InitialContextSetupFailure',
-            6: 'UERadioCapabilityInfoIndication',
-            7: 'UERadioCapabilityCheckRequest',
-            8: 'UERadioCapabilityCheckResponse',
-            9: 'AuthenticationRequest',
-            10: 'AuthenticationResponse',
-            11: 'SecurityModeCommand',
-            12: 'SecurityModeComplete',
-            13: 'SecurityModeReject',
-            14: 'RegistrationRequest',
-            15: 'RegistrationAccept',
-            16: 'RegistrationReject',
-            17: 'RegistrationComplete',
-            18: 'RegistrationFailure',
-            19: 'DeregistrationRequest',
-            20: 'DeregistrationAccept',
-            21: 'DeregistrationRequest',
-            22: 'DeregistrationAccept',
-            23: 'ServiceRequest',
-            24: 'ServiceAccept',
-            25: 'ServiceReject',
-            26: 'ServiceFailure',
-            27: 'PDUSessionResourceSetupRequest',
-            28: 'PDUSessionResourceSetupResponse',
-            29: 'PDUSessionResourceSetupFailure',
-            30: 'PDUSessionResourceModifyRequest',
-            31: 'PDUSessionResourceModifyResponse',
-            32: 'PDUSessionResourceModifyFailure',
-            33: 'PDUSessionResourceReleaseRequest',
-            34: 'PDUSessionResourceReleaseResponse',
-            35: 'PDUSessionResourceReleaseFailure',
-            36: 'PDUSessionResourceNotify',
-            37: 'PDUSessionResourceNotifyResponse',
-            38: 'PDUSessionResourceNotifyFailure',
-            39: 'PDUSessionResourceModifyIndication',
-            40: 'PDUSessionResourceModifyConfirm',
-            41: 'PDUSessionResourceModifyIndicationFailure',
-            42: 'PDUSessionResourceModifyIndicationResponse',
-            43: 'PDUSessionResourceModifyIndicationFailure',
-            44: 'PDUSessionResourceModifyIndicationResponse',
-            45: 'PDUSessionResourceModifyIndicationFailure',
-            46: 'PDUSessionResourceModifyIndicationResponse',
-            47: 'PDUSessionResourceModifyIndicationFailure',
-            48: 'PDUSessionResourceModifyIndicationResponse',
-            49: 'PDUSessionResourceModifyIndicationFailure',
-            50: 'PDUSessionResourceModifyIndicationResponse',
-            
-            # Extended ranges and vendor-specific codes
-            21: 'NGSetupRequest',       # id-NGSetup (standard)
-            768: 'NGSetupRequest',      # Common vendor implementation
-            769: 'NGSetupResponse',     # Common vendor implementation
-            770: 'NGSetupFailure',      # Common vendor implementation
-            771: 'InitialUEMessage',    # Alternative encoding
-            772: 'DownlinkNASTransport', # Alternative encoding
-            773: 'InitialContextSetupRequest', # Alternative encoding
-            774: 'InitialContextSetupResponse', # Alternative encoding
-            775: 'InitialContextSetupFailure', # Alternative encoding
-            776: 'AuthenticationRequest', # Alternative encoding
-            777: 'AuthenticationResponse', # Alternative encoding
-            778: 'SecurityModeCommand', # Alternative encoding
-            779: 'SecurityModeComplete', # Alternative encoding
-            780: 'SecurityModeReject', # Alternative encoding
-            781: 'RegistrationRequest', # Alternative encoding
-            782: 'RegistrationAccept', # Alternative encoding
-            783: 'RegistrationReject', # Alternative encoding
-            784: 'RegistrationComplete', # Alternative encoding
-            785: 'RegistrationFailure', # Alternative encoding
-            786: 'ServiceRequest', # Alternative encoding
-            787: 'ServiceAccept', # Alternative encoding
-            788: 'ServiceReject', # Alternative encoding
-            789: 'ServiceFailure' # Alternative encoding
+            # 3GPP TS 38.413 NGAP-Constants ProcedureCode
+            0: 'AMFConfigurationUpdate',
+            1: 'AMFStatusIndication',
+            2: 'CellTrafficTrace',
+            3: 'DeactivateTrace',
+            4: 'DownlinkNASTransport',
+            5: 'DownlinkNonUEAssociatedNRPPaTransport',
+            6: 'DownlinkRANConfigurationTransfer',
+            7: 'DownlinkRANStatusTransfer',
+            8: 'DownlinkUEAssociatedNRPPaTransport',
+            9: 'ErrorIndication',
+            10: 'HandoverCancel',
+            11: 'HandoverNotification',
+            12: 'HandoverPreparation',
+            13: 'HandoverResourceAllocation',
+            14: 'InitialContextSetup',
+            15: 'InitialUEMessage',
+            16: 'LocationReportingControl',
+            17: 'LocationReportingFailureIndication',
+            18: 'LocationReport',
+            19: 'NASNonDeliveryIndication',
+            20: 'NGReset',
+            21: 'NGSetup',
+            22: 'Paging',
+            23: 'PathSwitchRequest',
+            24: 'PDUSessionResourceModify',
+            25: 'PDUSessionResourceModifyIndication',
+            26: 'PDUSessionResourceRelease',
+            27: 'PDUSessionResourceSetup',
+            28: 'PDUSessionResourceNotify',
+            29: 'PrivateMessage',
+            30: 'PWSCancel',
+            31: 'PWSFailureIndication',
+            32: 'PWSRestartIndication',
+            33: 'RANConfigurationUpdate',
+            34: 'RerouteNASRequest',
+            35: 'TraceFailureIndication',
+            36: 'TraceStart',
+            37: 'UECapabilityInfoIndication',
+            38: 'UEContextModification',
+            39: 'UEContextRelease',
+            40: 'UEContextReleaseRequest',
+            41: 'UERadioCapabilityCheck',
+            42: 'UETNLABindingRelease',
+            43: 'UplinkNASTransport',
+            44: 'UplinkNonUEAssociatedNRPPaTransport',
+            45: 'UplinkRANConfigurationTransfer',
+            46: 'UplinkRANStatusTransfer',
+            47: 'UplinkUEAssociatedNRPPaTransport',
+            48: 'WriteReplaceWarning'
         }
         return procedure_names.get(procedure_code, f'UnknownProcedure_{procedure_code}')
 
@@ -1451,7 +2021,7 @@ class PCAPProcessor:
         """Convert non-JSON-serializable types (e.g., sets) to lists in-place."""
         set_keys = [
             'icmp_types', 'gtp_inner_protocols', 'pfcp_message_types', 'pfcp_cause_codes',
-            'ngap_procedure_types', 'ngap_message_types', 'ngap_cause_codes', 'ngap_amf_ue_ngap_id',
+            'ngap_procedure_types', 'ngap_message_types', 'ngap_message_types_names', 'ngap_cause_codes', 'ngap_amf_ue_ngap_id',
             'ngap_ran_ue_ngap_id', 'ngap_authentication_steps', 'ngap_security_steps',
             'timing_anomalies', 'sequence_anomalies', 'retransmission_patterns',
             'failure_patterns', 'failure_scenarios', 'error_patterns', 'root_cause_indicators',

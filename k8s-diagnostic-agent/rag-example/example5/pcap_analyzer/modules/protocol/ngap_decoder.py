@@ -26,9 +26,19 @@ class NGAPDecoder:
 
         try:
             # NGAP uses aligned PER
-            self.decoder = asn1tools.compile_files(schema_path, codec='per')
+            # schema_path can be a single file or list of files
+            if isinstance(schema_path, str):
+                schema_files = [schema_path]
+            else:
+                schema_files = schema_path
+            
+            self.decoder = asn1tools.compile_files(schema_files, codec='per')
             self.schema_loaded = True
-            self.logger.info(f"Loaded NGAP ASN.1 schema from {schema_path}")
+            self.logger.info(f"Loaded NGAP ASN.1 schema from {schema_files}")
+        except FileNotFoundError as ex:
+            self.logger.error(f"NGAP ASN.1 schema file not found: {ex}")
+            self.decoder = None
+            self.schema_loaded = False
         except Exception as ex:
             self.logger.warning(f"Failed to compile NGAP ASN.1 schema: {ex}")
             self.decoder = None
@@ -107,5 +117,36 @@ class NGAPDecoder:
             return result
 
         return result
+
+    def get_available_message_types(self) -> Optional[list]:
+        """Get list of available message types from the loaded schema."""
+        if not self.is_available():
+            return None
+        try:
+            # Get the schema types
+            return list(self.decoder.types.keys())
+        except Exception:
+            return None
+
+    def decode_with_fallback(self, payload_bytes: bytes, message_type: str = 'NGAP-PDU') -> Optional[Dict[str, Any]]:
+        """Decode with specified message type, fallback to NGAP-PDU if that fails."""
+        if not self.is_available():
+            return None
+        
+        try:
+            # Try with specified message type first
+            decoded = self.decoder.decode(message_type, payload_bytes)
+            return decoded
+        except Exception as e1:
+            if message_type != 'NGAP-PDU':
+                try:
+                    # Fallback to default NGAP-PDU
+                    decoded = self.decoder.decode('NGAP-PDU', payload_bytes)
+                    return decoded
+                except Exception as e2:
+                    self.logger.debug(f"Failed to decode with {message_type}: {e1}, and with NGAP-PDU: {e2}")
+            else:
+                self.logger.debug(f"Failed to decode with NGAP-PDU: {e1}")
+            return None
 
 

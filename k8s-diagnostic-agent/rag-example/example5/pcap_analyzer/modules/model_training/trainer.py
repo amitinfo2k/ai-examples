@@ -68,10 +68,21 @@ class PCAPModelTrainer:
         label_counts = Counter(y)
         min_class_count = min(label_counts.values())
         
-        # Split into train and test sets
-        if min_class_count >= 2 and len(y) >= 4:  # Need at least 2 per class and 4 total for meaningful split
+        # Calculate minimum test_size needed for stratification (at least 1 sample per class)
+        min_test_samples = len(label_counts)  # Need at least 1 sample per class in test set
+        min_test_size = min_test_samples / len(y)
+        
+        if min_class_count >= 2 and len(y) >= 4 and test_size >= min_test_size:
+            # Use stratified split if we have enough samples
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=test_size, random_state=42, stratify=y
+            )
+        elif min_class_count >= 2 and len(y) >= 4:
+            # Adjust test_size to minimum required for stratification
+            adjusted_test_size = max(min_test_size, 0.5)  # At least 50% for very small datasets
+            print(f"Warning: Adjusting test_size from {test_size} to {adjusted_test_size} for stratification with small dataset.")
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=adjusted_test_size, random_state=42, stratify=y
             )
         else:
             # For small datasets, use simple random split without stratification
