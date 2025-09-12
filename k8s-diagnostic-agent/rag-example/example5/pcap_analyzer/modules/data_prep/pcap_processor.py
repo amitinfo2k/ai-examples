@@ -247,16 +247,46 @@ class PCAPProcessor:
                                 pass
                     elif SCTP in pkt:
                         features['protocol_counts']['SCTP'] += 1
-                        # NGAP runs over SCTP port 38412
+                        # NGAP runs over SCTP port 38412 with PPID 60
                         try:
                             sctp = pkt[SCTP]
-                            # Prefer PPID=60 (NGAP) detection from Data chunks; ports are secondary
+                            # Only process SCTP packets with PPID=60 (NGAP) as NGAP messages
                             ngap_payload = self._extract_sctp_ngap_payload(sctp)
                             port_match = (getattr(sctp, 'sport', None) == 38412 or getattr(sctp, 'dport', None) == 38412)
-                            if ngap_payload is not None or port_match:
+                            
+                            # Check for PPID 60 explicitly in SCTP chunks
+                            has_ngap_ppid = False
+                            try:
+                                if hasattr(sctp, 'chunks'):
+                                    for ch in sctp.chunks:
+                                        if isinstance(ch, SCTPChunkData) and getattr(ch, 'proto_id', None) == 60:
+                                            has_ngap_ppid = True
+                                            break
+                                else:
+                                    # Fallback: check payload layers for SCTPChunkData with PPID 60
+                                    current = sctp.payload
+                                    for _ in range(5):
+                                        if isinstance(current, SCTPChunkData) and getattr(current, 'proto_id', None) == 60:
+                                            has_ngap_ppid = True
+                                            break
+                                        if not hasattr(current, 'payload') or current.payload is None:
+                                            break
+                                        current = current.payload
+                            except Exception:
+                                pass
+                            
+                            # Only treat as NGAP if we have PPID=60 OR valid NGAP payload
+                            is_ngap_packet = False
+                            if ngap_payload is not None or has_ngap_ppid:
+                                is_ngap_packet = True
+                            
+                            if is_ngap_packet:
                                 # Enhanced NGAP message parsing
                                 ngap_info = self._parse_ngap_message(pkt, sctp, pkt_index)
-
+                                
+                                # Add packet number to track which packets contain NGAP
+                                ngap_info['packet_number'] = pkt_index
+                                
                                 # If ASN.1 decoder is available, try decoding and enrich fields
                                 if self.ngap_decoder and self.ngap_decoder.is_available():
                                     payload_bytes = ngap_payload if ngap_payload is not None else b''
@@ -713,9 +743,9 @@ class PCAPProcessor:
                                 features['ngap_message_types_names'].append(str(pretty))
                         except Exception:
                             pass
-                        if pc is not None:
-                            features['ngap_procedure_types'].append(str(pc))
-
+                        # Procedure codes should only be added from actual NGAP message parsing
+                        # not from pyshark fallback which processes all SCTP packets
+                        
                         # Registration flow hints
                         text = str(pkt.ngap).lower()
                         if 'initial ue message' in text or 'initial_ue_message' in text:
@@ -775,7 +805,7 @@ class PCAPProcessor:
 
                         # Registration Reject detection
                         low = str(pkt.nas_5gs).lower()
-                        if 'registration reject' in low or 'registration_reject' in low:
+                        if ('registration reject' in low or 'registration_reject' in low) and ('nas-5gs' in low or 'nas_5gs' in low or 'ngap' in low):
                             # 5GS cause field name can differ across versions
                             cause_fields = [
                                 'mm_5gs_cause',
@@ -801,6 +831,10 @@ class PCAPProcessor:
                                             pass
                                 except Exception:
                                     continue
+                            if cause_val is None:
+                                # Default to Illegal UE if text mentions it
+                                if 'illegal ue' in low:
+                                    cause_val = 3
                             if cause_val is not None:
                                 features['reject_causes'].append(int(cause_val))
                             reg_rejected = True
@@ -999,7 +1033,7 @@ class PCAPProcessor:
             # Parse NGAP payload if available
             payload_bytes = b''
             
-            # Prefer SCTP Data chunk with PPID=60
+            # Prefer SCTP Data chunk with PPID 60
             ngap_payload = self._extract_sctp_ngap_payload(sctp)
             if ngap_payload is not None:
                 payload_bytes = ngap_payload
@@ -1164,8 +1198,7 @@ class PCAPProcessor:
                                 ngap_info = self._parse_nas_pdu(payload_bytes, ngap_info)
                                 break
 
-                # Method 7: Deterministic NAS Registration Reject hex-scan (guarded)
-                # Only attempt on NGAP that can carry NAS: InitialUEMessage (1) or DownlinkNASTransport (2)
+                # Method 7: Deterministic NAS PDU parsing for DownlinkNASTransport messages
                 try:
                     if (len(payload_bytes) >= 4 and not ngap_info.get('is_reject') and
                         ngap_info.get('procedure_code') in (1, 2)):
@@ -1488,8 +1521,7 @@ class PCAPProcessor:
                 # Look for Registration Reject pattern without protocol discriminator
                 for i in range(len(payload_bytes) - 4):
                     # Look for Registration Reject (0x44) directly
-                    if (i + 1 < len(payload_bytes) and 
-                        payload_bytes[i] == 0x44):  # Registration Reject message type
+                    if (payload_bytes[i] == 0x44):  # Registration Reject message type
                         
                         self.logger.info("Found Registration Reject message (alternative pattern)")
                         ngap_info['is_reject'] = True
@@ -1540,35 +1572,25 @@ class PCAPProcessor:
                         break
                     
                     # Check for other NAS message types
-                    elif (i + 1 < len(payload_bytes) and 
-                          payload_bytes[i + 1] == 0x43):  # Registration Accept
+                    elif (payload_bytes[i] == 0x43):  # Registration Accept
                         ngap_info['nas_message_type'] = 'RegistrationAccept'
-                    elif (i + 1 < len(payload_bytes) and 
-                          payload_bytes[i + 1] == 0x41):  # Registration Request
+                    elif (payload_bytes[i] == 0x41):  # Registration Request
                         ngap_info['nas_message_type'] = 'RegistrationRequest'
-                    elif (i + 1 < len(payload_bytes) and 
-                          payload_bytes[i + 1] == 0x5e):  # Authentication Request
+                    elif (payload_bytes[i] == 0x5e):  # Authentication Request
                         ngap_info['nas_message_type'] = 'AuthenticationRequest'
-                    elif (i + 1 < len(payload_bytes) and 
-                          payload_bytes[i + 1] == 0x5f):  # Authentication Response
+                    elif (payload_bytes[i] == 0x5f):  # Authentication Response
                         ngap_info['nas_message_type'] = 'AuthenticationResponse'
-                    elif (i + 1 < len(payload_bytes) and 
-                          payload_bytes[i + 1] == 0x5d):  # Security Mode Command
+                    elif (payload_bytes[i] == 0x5d):  # Security Mode Command
                         ngap_info['nas_message_type'] = 'SecurityModeCommand'
-                    elif (i + 1 < len(payload_bytes) and 
-                          payload_bytes[i + 1] == 0x5e):  # Security Mode Complete
+                    elif (payload_bytes[i] == 0x5e):  # Security Mode Complete
                         ngap_info['nas_message_type'] = 'SecurityModeComplete'
-                    elif (i + 1 < len(payload_bytes) and 
-                          payload_bytes[i + 1] == 0x5f):  # Security Mode Reject
+                    elif (payload_bytes[i] == 0x5f):  # Security Mode Reject
                         ngap_info['nas_message_type'] = 'SecurityModeReject'
                         ngap_info['is_reject'] = True
-                        
-                        # Look for cause code in Security Mode Reject
                         if i + 3 < len(payload_bytes):
                             cause_code = payload_bytes[i + 3]
                             ngap_info['cause_code'] = cause_code
                             ngap_info['nas_cause_code'] = cause_code
-                        
                         break
             
             return ngap_info
@@ -1630,15 +1652,16 @@ class PCAPProcessor:
                             cause_code = msg['nas_cause_code']
                             root_cause_indicators.append(f"NAS_Registration_Reject_Cause_{cause_code}")
                             
-                            # Map specific cause codes to detailed descriptions
-                            if cause_code == 3:
-                                failure_patterns.append("NAS_Registration_Reject_Illegal_UE")
-                                root_cause_indicators.append("UE_Identity_Issue")
+                            # Map a few common text descriptions
+                            cause_map = {3: 'Illegal UE', 6: 'Illegal ME', 11: 'PLMN not allowed', 12: 'Tracking area not allowed'}
+                            if cause_code in cause_map:
+                                failure_patterns.append(f"NAS_Registration_Reject_{cause_map[cause_code]}")
+                                root_cause_indicators.append(f"UE_Identity_Issue")
                                 # Add specific 5G protocol details
                                 features['specific_5g_issues'].append({
                                     'type': 'Registration_Reject',
                                     'cause_code': cause_code,
-                                    'description': 'Illegal UE',
+                                    'description': cause_map[cause_code],
                                     'severity': 'high',
                                     'component': 'AMF'
                                 })

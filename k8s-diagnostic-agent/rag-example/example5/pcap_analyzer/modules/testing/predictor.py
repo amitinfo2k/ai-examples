@@ -133,7 +133,7 @@ class PCAPPredictor:
             'avg_packet_size': features['avg_packet_size'],
             'avg_timing': features['avg_timing'],
             'error_count': features['error_count'],
-            'ngap_message_count': features['ngap_message_count'],
+            'ngap_message_count': len(features.get('ngap_messages', [])),
             'count_TCP': features['protocol_counts']['TCP'],
             'count_UDP': features['protocol_counts']['UDP'],
             'count_SCTP': features['protocol_counts']['SCTP']
@@ -306,7 +306,8 @@ class PCAPPredictor:
                     })
         
         # Enhanced NGAP indicators (5G control plane)
-        if features.get('ngap_message_count', 0) > 0:
+        ngap_message_count = len(features.get('ngap_messages', []))
+        if ngap_message_count > 0:
             # Procedure types (show unique procedures with counts)
             if features.get('ngap_procedure_types'):
                 # Count unique procedures
@@ -470,7 +471,7 @@ class PCAPPredictor:
         
         # Protocol indicators for NGAP (only if no PFCP/GTP present)
         has_pfcp_or_gtp = features.get('pfcp_packets', 0) > 0 or features.get('gtp_packets', 0) > 0
-        if not has_pfcp_or_gtp and features['protocol_counts']['SCTP'] == 0 and features['ngap_message_count'] == 0:
+        if not has_pfcp_or_gtp and features['protocol_counts']['SCTP'] == 0 and ngap_message_count == 0:
             indicators.append({
                 'type': 'info',
                 'message': "No SCTP traffic or NGAP messages detected. This might not be 5G control plane traffic."
