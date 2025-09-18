@@ -1,0 +1,166 @@
+# PIPELINE DEFINITION
+# Name: pcap-analyzer-pipeline
+# Description: PCAP Analysis Pipeline
+# Inputs:
+#    input_pcaps: str [Default: '/data/raw_pcaps']
+#    mapping_file: str [Default: '/data/mapping.csv']
+#    output_dir: str [Default: '/outputs']
+#    test_pcaps: str [Default: '/data/test_pcaps']
+components:
+  comp-prepare-data:
+    executorLabel: exec-prepare-data
+    inputDefinitions:
+      parameters:
+        input_pcaps:
+          parameterType: STRING
+        mapping_file:
+          parameterType: STRING
+        output_dir:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-train-model:
+    executorLabel: exec-train-model
+    inputDefinitions:
+      parameters:
+        features_file:
+          parameterType: STRING
+        output_dir:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-prepare-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - prepare_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.3'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef prepare_data(\n    input_pcaps: str,\n    mapping_file: str,\n\
+          \    output_dir: str\n) -> str:\n    import os\n    from pcap_analyzer.modules.data_prep.pcap_processor\
+          \ import PCAPProcessor\n    from pcap_analyzer.config import load_config\n\
+          \n    os.makedirs(output_dir, exist_ok=True)\n    features_file = os.path.join(output_dir,\
+          \ 'features.json')\n\n    config = load_config()\n    processor = PCAPProcessor(config,\
+          \ mapping_file=mapping_file)\n    processor.process_directory(input_pcaps,\
+          \ features_file)\n    return features_file\n\n"
+        image: amitinfo2k/pcap-analyzer:latest
+        imagePullPolicy: IfNotPresent
+    exec-train-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.3'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_model(\n    features_file: str,\n    output_dir: str\n\
+          ):\n    import os\n    from pcap_analyzer.modules.model_training.trainer\
+          \ import PCAPModelTrainer\n    from pcap_analyzer.config import load_config\n\
+          \n    os.makedirs(output_dir, exist_ok=True)\n    model_path = os.path.join(output_dir,\
+          \ 'model.joblib')\n\n    config = load_config()\n    trainer = PCAPModelTrainer(config)\n\
+          \    trainer.train(features_file, model_path)\n\n"
+        image: amitinfo2k/pcap-analyzer:latest
+        imagePullPolicy: IfNotPresent
+pipelineInfo:
+  description: PCAP Analysis Pipeline
+  name: pcap-analyzer-pipeline
+root:
+  dag:
+    tasks:
+      prepare-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-prepare-data
+        inputs:
+          parameters:
+            input_pcaps:
+              componentInputParameter: input_pcaps
+            mapping_file:
+              componentInputParameter: mapping_file
+            output_dir:
+              runtimeValue:
+                constant: '{{$.inputs.parameters[''pipelinechannel--output_dir'']}}/features'
+            pipelinechannel--output_dir:
+              componentInputParameter: output_dir
+        taskInfo:
+          name: prepare-data
+      train-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-model
+        dependentTasks:
+        - prepare-data
+        inputs:
+          parameters:
+            features_file:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: prepare-data
+            output_dir:
+              runtimeValue:
+                constant: '{{$.inputs.parameters[''pipelinechannel--output_dir'']}}/model'
+            pipelinechannel--output_dir:
+              componentInputParameter: output_dir
+        taskInfo:
+          name: train-model
+  inputDefinitions:
+    parameters:
+      input_pcaps:
+        defaultValue: /data/raw_pcaps
+        isOptional: true
+        parameterType: STRING
+      mapping_file:
+        defaultValue: /data/mapping.csv
+        isOptional: true
+        parameterType: STRING
+      output_dir:
+        defaultValue: /outputs
+        isOptional: true
+        parameterType: STRING
+      test_pcaps:
+        defaultValue: /data/test_pcaps
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.14.3
