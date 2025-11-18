@@ -1,0 +1,54 @@
+generate_jolt_spec:
+  description: >
+    Analyze the provided OCSF event log file and the expected output JSON template.
+    Generate a JOLT specification that can transform the OCSF log into the desired JSON format.
+    The JOLT spec should map fields from the OCSF schema to the target schema based on semantic similarity.
+    
+    Inputs:
+    - OCSF Event Log File: {input_file}
+    - Expected Output Template: {output_template}
+    - (Optional) Field Mappings: {field_mappings}
+    
+    Important: The output MUST be a valid JSON object with the following structure:
+    [{
+      "operation": "shift",
+      "spec": {
+        // Your JOLT spec mapping here
+      }
+    }]
+    
+    Follow these guidelines:
+    1. The root object MUST have exactly two properties: "operation" and "spec".
+    2. The "operation" MUST be "shift".
+    3. The "spec" object should contain the field mappings from the OCSF input to the target template.
+    4. For nested structures, use dot notation (e.g., "user.id").
+    5. For arrays, use array notation (e.g., "users[].id").
+    6. The JOLT spec must strictly follow the pattern given in the example.
+    7. The output event element should not have any nested elements or arrays.
+    8. Only include fields that exist in the OCSF input; otherwise, they will be set to null.
+    
+    Example of a complete spec based on OCSF structure:
+    ```json
+    [{
+      "operation": "shift",
+      "spec": {
+        "finding": {
+          "created_time": "events[0].eventtime",
+          "desc": "events[0].message"
+        },
+        "category_uid": "events[0].category_id",
+        "class_uid": "events[0].baseeventid",
+        "class_name": "events[0].class_name",
+        "type_name": "events[0].type"
+      }
+    }]
+    
+    Important Notes:
+    - The actual field names should match those in your OCSF input
+    - Only include fields that exist in your OCSF input
+    - Jolt spec should strictly follow the pattern given in the example
+    - as per the example given I need an events array in the output with one element 
+    - include the keys mentioned in the examples e.g.class_uid, category_uid etc do not remove them use as is.
+    - output event element should not have any nested element or an arrary element
+  agent: ocsf_jolt_parser
+  output_file: jolt_spec.json

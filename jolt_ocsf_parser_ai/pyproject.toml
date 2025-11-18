@@ -1,0 +1,65 @@
+[project]
+name = "jolt_ocsf_parser_ai"
+version = "0.1.0"
+description = "Convert OCSF logs to JOLT specifications using local Ollama models"
+authors = [{ name = "Amit Wankhede", email = "amit.wankhede@gslab.com" }]
+requires-python = ">=3.10,<3.14"
+readme = "README.md"
+license = {text = "MIT"}
+dependencies = [
+    "crewai[google-genai]>=1.4.1",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "typing-extensions>=4.0.0",
+]
+
+[project.scripts]
+jolt_ocsf_parser_ai = "jolt_ocsf_parser_ai.main:run"
+run_crew = "jolt_ocsf_parser_ai.main:run"
+train = "jolt_ocsf_parser_ai.main:train"
+replay = "jolt_ocsf_parser_ai.main:replay"
+test = "jolt_ocsf_parser_ai.main:test"
+run_with_trigger = "jolt_ocsf_parser_ai.main:run_with_trigger"
+
+[build-system]
+requires = ["hatchling>=1.10.0"]
+build-backend = "hatchling.build"
+
+[build]
+# Build configuration
+
+[tool.crewai]
+type = "crew"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.0.280",
+    "langchain-google-genai>=0.1.0"
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+select = [
+    "E",  # pycodestyle errors
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+    "N",  # pep8-naming
+    "PL", # pylint
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "E203",  # whitespace before ':', handled by black
+]
+
+[tool.black]
+line-length = 120
+target-version = ['py310']
+include = '\.pyi?$'
