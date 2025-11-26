@@ -1,5 +1,5 @@
 {
-    "name": "K8s Debug Agent",
+    "name": "K8s Diagnostic Agent",
     "description": "Helps get the required information by attaching a sidecar container e.g. tcpdump , dns tools etc. ",
     "url": "http://localhost:10104/",
     "provider": null,

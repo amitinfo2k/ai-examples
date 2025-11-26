@@ -9,12 +9,12 @@ You can also run each service individually in separate terminals:
 
 2. Start the Kubernetes Info Agent:
    ```bash
-   run src/k8s_debug/agents/ --agent-card agent_cards/k8s_info_agent.json --port 10103
+   uv run src/k8s_debug/agents/ --agent-card agent_cards/k8s_info_agent.json --port 10103
    ```
 # Following not required
 3. Start the Log Analysis Agent:
    ```bash
-   run src/k8s_debug/agents/ --agent-card agent_cards/log_analysis_agent.json --port 10104
+   run src/k8s_debug/agents/ --agent-card agent_cards/k8s_debug_agent.json --port 10104
    ```
 
 4. Start the Orchestrator Agent:

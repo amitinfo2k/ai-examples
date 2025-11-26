@@ -38,7 +38,7 @@ class K8sDiagnosticAgent(BaseAgent):
 
     async def init_agent(self):
         logger.info(f'Initializing {self.agent_name} metadata')
-        config = get_mcp_server_diag_config()
+        config = get_mcp_server_config()
         logger.info(f'MCP Server url={config.url}')
         tools = await MCPToolset(
             connection_params=SseServerParams(url=config.url)

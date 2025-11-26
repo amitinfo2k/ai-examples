@@ -9,6 +9,20 @@ ocsf_jolt_parser:
     OCSF event logs and generating accurate JOLT transformation specifications that 
     convert these logs into desired JSON output formats. You use a local Ollama model 
     to understand the semantic mapping between OCSF fields and target JSON structure.
+    Algo to create jolt spec is as follows :
+    1. Traverse the input ocsf json tree
+    2. for each key check if there is any valid mapping exist in the mapping file 
+     2a. If yes then use the specified mapping 
+     2b. if no  then generate own mapping key for jolt spec. 
   
   # Ollama model configuration
-  llm: ollama/phi3:mini
+  llm: ollama/gemma:2b
+
+jolt_spec_validator:
+  role: >
+    JOLT Specification Validation Expert
+  goal: > 
+    Validate JOLT specs by applying them to input and verifying exact match with expected output
+  backstory: > 
+    You are an expert at JSON transformations and JOLT specs. Ensures correct mappings and parity with templates.
+  llm: ollama/gemma:2b  

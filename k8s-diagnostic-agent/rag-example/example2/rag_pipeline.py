@@ -4,10 +4,7 @@ from kfp.dsl import component, Input, Output, Artifact
 from kfp.kubernetes import mount_pvc
 
 # Component to parse tcpdump file (assumes input is a pcap file path)
-@component(
-    base_image='amitinfo2k/pcap-pipeline:3.10',
-    packages_to_install=['scapy']
-)
+#@component(base_image='amitinfo2k/pcap-pipeline:3.10',packages_to_install=['scapy'])
 def parse_tcpdump(
     input_pcap: str,
     output_text: Output[Artifact]
@@ -28,9 +25,7 @@ def parse_tcpdump(
 # Assumes ChromaDB service is deployed in the same Kubernetes cluster,
 # accessible via service DNS (e.g., chroma-service in default namespace).
 # Adjust the host/port as per your deployment.
-@component(
-    base_image='amitinfo2k/pcap-pipeline:3.10',
-)
+@component(base_image='amitinfo2k/pcap-pipeline:3.10')
 def embed_and_store(
     input_text: Input[Artifact],
     collection_name: str
@@ -38,12 +33,17 @@ def embed_and_store(
     import chromadb
     from sentence_transformers import SentenceTransformer
     
-    # Connect to ChromaDB service in the cluster using v2 API
+    # Connect to ChromaDB service with v2 API and explicit tenant/database
     client = chromadb.HttpClient(
-        host='chroma-service.chromedb.svc.cluster.local',  # Updated namespace to chromedb
-        port=8000,  # Default ChromaDB HTTP port; adjust if needed
+        host='chroma-service.chromedb.svc.cluster.local',
+        port=8000,
         ssl=False,
-        headers={"x-chroma-client-version": "2.0.0"}
+        headers={
+            "x-chroma-client-version": "2.0.0",
+            "x-chroma-request-source": "kubeflow-pipeline"
+        },
+        tenant="default_tenant",
+        database="default_database"
     )
     
     # Get or create collection with v2 API
@@ -90,12 +90,17 @@ def rag_analysis(
     # Configure Gemini API key (assume it's set as env var or secret)
     genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
     
-    # Connect to ChromaDB service using v2 API
+    # Connect to ChromaDB service with v2 API and explicit tenant/database
     client = chromadb.HttpClient(
-        host='chroma-service.chromedb.svc.cluster.local',  # Updated namespace to chromedb
+        host='chroma-service.chromedb.svc.cluster.local',
         port=8000,
         ssl=False,
-        headers={"x-chroma-client-version": "2.0.0"}
+        headers={
+            "x-chroma-client-version": "2.0.0",
+            "x-chroma-request-source": "kubeflow-pipeline"
+        },
+        tenant="default_tenant",
+        database="default_database"
     )
 
     # Get collection with v2 API
@@ -137,10 +142,10 @@ def rag_analysis(
         f.write(response.text.strip())
 
 # Define the Kubeflow Pipeline
-@dsl.pipeline(
-    name='RAG Pipeline for TCPDump Analysis',
-    description='A pipeline that processes tcpdump data, stores embeddings in ChromaDB, and performs RAG-based analysis.'
-)
+#@dsl.pipeline(
+#    name='RAG Pipeline for TCPDump Analysis',
+#    description='A pipeline that processes tcpdump data, stores embeddings in ChromaDB, and performs RAG-based analysis.'
+#)
 def rag_tcpdump_pipeline(
     input_pcap: str = '/mnt/pcap/sample.pcap',  # Path in mounted volume
     collection_name: str = 'tcpdump_collection',
@@ -172,8 +177,107 @@ def rag_tcpdump_pipeline(
     ).after(embed_step)
     set_image_pull_policy(analysis_step, 'IfNotPresent')
 
-# To compile and run: Use kfp compiler to generate YAML, then upload to Kubeflow.
+# Local execution functions
+def run_locally(pcap_path: str, query: str):
+    import os
+    import tempfile
+
+    # Configuration
+    config = {
+        'input_pcap': pcap_path,
+        'collection_name': 'tcpdump_collection',
+        'query': query
+    }
+
+    # Create a temporary directory for outputs
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Define paths
+        output_text = os.path.join(temp_dir, 'packet_summaries.txt')
+        
+        # Step 1: Parse PCAP
+        print("Step 1: Parsing PCAP file...")
+        with open(output_text, 'w') as f:
+            # Local version of parse_tcpdump logic
+            from scapy.all import rdpcap
+            packets = rdpcap(config['input_pcap'])
+            summaries = [pkt.summary() for pkt in packets]
+            f.write('\n'.join(summaries))
+        print(f"Parsed {len(summaries)} packets to {output_text}")
+
+        # Step 2: Embed and store
+        print("\nStep 2: Creating embeddings...")
+        from sentence_transformers import SentenceTransformer
+        import chromadb
+        
+        # Initialize ChromaDB client
+        client = chromadb.Client()
+        
+        # Get or create collection
+        try:
+            collection = client.get_collection(name=config['collection_name'])
+            print(f"Using existing collection: {config['collection_name']}")
+        except ValueError:
+            collection = client.create_collection(name=config['collection_name'])
+            print(f"Created new collection: {config['collection_name']}")
+        
+        # Read packet summaries
+        with open(output_text, 'r') as f:
+            texts = [line.strip() for line in f if line.strip()]
+        
+        # Generate embeddings
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        embeddings = model.encode(texts).tolist()
+        
+        # Add to ChromaDB
+        collection.add(
+            documents=texts,
+            embeddings=embeddings,
+            ids=[f'pkt_{i}' for i in range(len(texts))]
+        )
+        print(f"Added {len(texts)} documents to ChromaDB")
+
+        # Step 3: Perform RAG analysis
+        print("\nStep 3: Running RAG analysis...")
+        # Simple local RAG implementation
+        query_embedding = model.encode([config['query']]).tolist()[0]
+        
+        # Query ChromaDB
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=min(5, len(texts))  # Get top 5 or all if less than 5
+        )
+        
+        # Display results
+        print("\nAnalysis Results:")
+        print("-" * 50)
+        print(f"Query: {config['query']}")
+        print("\nRelevant Packet Summaries:")
+        for i, (doc, score) in enumerate(zip(results['documents'][0], results['distances'][0]), 1):
+            print(f"\n{i}. [Score: {1 - score:.3f}] {doc}")
+        print("\n" + "="*50 + "\n")
+
+# Entry point for local execution
 if __name__ == '__main__':
+    import os
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Run TCPDump analysis locally')
+    parser.add_argument('--pcap', type=str, required=True,
+                      help='Path to the PCAP file to analyze')
+    parser.add_argument('--query', type=str, 
+                      default='Detect any anomalies in the network traffic',
+                      help='Query for RAG analysis')
+    
+    args = parser.parse_args()
+    
+    if not os.path.exists(args.pcap):
+        print(f"Error: PCAP file not found: {args.pcap}")
+        exit(1)
+        
+    run_locally(pcap_path=args.pcap, query=args.query)
+
+# For Kubeflow pipeline compilation
+if os.getenv('KUBEFLOW_RUN', '0') == '1':
     from kfp import compiler
     compiler.Compiler().compile(
         pipeline_func=rag_tcpdump_pipeline,

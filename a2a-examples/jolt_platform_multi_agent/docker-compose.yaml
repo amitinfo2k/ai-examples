@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: wurstmeister/zookeeper
+    ports:
+      - "2181:2181"
+    networks:
+      - jolt-network
+
+  kafka:
+    image: wurstmeister/kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_CREATE_TOPICS: "START_WORKFLOW:1:1,SPEC_CREATED:1:1,VALIDATION_COMPLETED:1:1,WORKFLOW_COMPLETE:1:1,WORKFLOW_ERROR:1:1"
+    depends_on:
+      - zookeeper
+    networks:
+      - jolt-network
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+    ports:
+      - "8000:8000"
+    environment:
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GEMINI_MODEL: gemini-1.5-pro
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_GROUP_ID: jolt-group
+    depends_on:
+      - kafka
+    networks:
+      - jolt-network
+
+  creator:
+    build:
+      context: .
+      dockerfile: Dockerfile.creator
+    environment:
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GEMINI_MODEL: gemini-1.5-pro
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_GROUP_ID: jolt-group
+    depends_on:
+      - kafka
+    networks:
+      - jolt-network
+
+  validator:
+    build:
+      context: .
+      dockerfile: Dockerfile.validator
+    environment:
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GEMINI_MODEL: gemini-1.5-pro
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_GROUP_ID: jolt-group
+    depends_on:
+      - kafka
+    networks:
+      - jolt-network
+
+networks:
+  jolt-network:
+    driver: bridge

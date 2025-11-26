@@ -9,6 +9,7 @@ This tool converts OCSF (Open Cybersecurity Schema Framework) event logs into JO
 - Supports custom field mappings
 - Handles nested JSON structures
 - Generates human-readable JOLT specifications
+- **Automated Validation**: Verifies the generated spec against the expected output and produces a validation report
 
 ## Prerequisites
 
@@ -59,20 +60,14 @@ ocsf_jolt_parser:
     transformation specifications that convert these logs into desired JSON output formats.
   
   # Model configuration
-  # For Ollama:
-  # llm:
-  #   model: ollama/llama3  # or any other suitable model you have available locally
-  #   base_url: http://localhost:11434
-  #   temperature: 0.1
-  #   max_tokens: 4000
-  
-  # For Gemini:
-  llm:
-    model: gemini-2.5-pro  # or any other supported Gemini model
-    provider: google
-    api_key: ${GOOGLE_API_KEY}  # Set this environment variable
-    temperature: 0.1
-    max_tokens: 4000
+  llm: ollama/gemma:2b
+
+jolt_spec_validator:
+  role: JOLT Specification Validation Expert
+  goal: Validate JOLT specs by applying them to input and verifying exact match with expected output
+  backstory: |
+    You are an expert at JSON transformations and JOLT specs. Ensures correct mappings and parity with templates.
+  llm: ollama/gemma:2b
 ```
 
 ### Task Configuration (`config/tasks.yaml`)
@@ -81,14 +76,20 @@ Configure the JOLT specification generation task:
 
 ```yaml
 generate_jolt_spec:
-  description: |
+  description: >
     Analyze the provided OCSF event log file and the expected output JSON template.
     Generate a JOLT specification that can transform the OCSF log into the desired JSON format.
-  expected_output: |
-    A complete JOLT specification that can transform the input OCSF log to the desired output format.
-    The output will be a valid JSON object containing the JOLT spec.
   agent: ocsf_jolt_parser
   output_file: jolt_spec.json
+
+validate_jolt_spec:
+  description: |
+    Validate the generated JOLT specification by applying it to the provided OCSF input and
+    comparing the produced output with the expected output template.
+  agent: jolt_spec_validator
+  output_file: validation_report.json
+  context:
+    - generate_jolt_spec
 ```
 
 ## Usage
@@ -211,7 +212,9 @@ You can provide a JSON file with field mappings to guide the conversion:
 
 ## Output
 
-The tool generates a JOLT specification that can be used with the JOLT CLI or library to transform OCSF logs into the desired format.
+The tool generates two main output files:
+1. **JOLT Specification** (`jolt_spec.json`): The generated JOLT specification that can be used to transform OCSF logs.
+2. **Validation Report** (`validation_report.json`): A report confirming whether the generated spec successfully transforms the input to the expected output. It details any discrepancies found.
 
 ## Customization
 

@@ -3,7 +3,6 @@ generate_jolt_spec:
     Analyze the provided OCSF event log file and the expected output JSON template.
     Generate a JOLT specification that can transform the OCSF log into the desired JSON format.
     The JOLT spec should map fields from the OCSF schema to the target schema based on semantic similarity.
-    
     Inputs:
     - OCSF Event Log File: {input_file}
     - Expected Output Template: {output_template}
@@ -17,18 +16,7 @@ generate_jolt_spec:
       }
     }]
     
-    Follow these guidelines:
-    1. The root object MUST have exactly two properties: "operation" and "spec".
-    2. The "operation" MUST be "shift".
-    3. The "spec" object should contain the field mappings from the OCSF input to the target template.
-    4. For nested structures, use dot notation (e.g., "user.id").
-    5. For arrays, use array notation (e.g., "users[].id").
-    6. The JOLT spec must strictly follow the pattern given in the example.
-    7. The output event element should not have any nested elements or arrays.
-    8. Only include fields that exist in the OCSF input; otherwise, they will be set to null.
-    
-    Example of a complete spec based on OCSF structure:
-    ```json
+     Example of a complete spec based on OCSF structure:
     [{
       "operation": "shift",
       "spec": {
@@ -40,15 +28,42 @@ generate_jolt_spec:
         "class_uid": "events[0].baseeventid",
         "class_name": "events[0].class_name",
         "type_name": "events[0].type"
-      }
     }]
-    
-    Important Notes:
-    - The actual field names should match those in your OCSF input
-    - Only include fields that exist in your OCSF input
-    - Jolt spec should strictly follow the pattern given in the example
-    - as per the example given I need an events array in the output with one element 
-    - include the keys mentioned in the examples e.g.class_uid, category_uid etc do not remove them use as is.
-    - output event element should not have any nested element or an arrary element
+
+    Follow these guidelines:
+    1. The root object MUST have exactly two properties: "operation" and "spec".
+    2. The "operation" MUST be "shift".
+    3. The "spec" object should contain the field mappings from the OCSF input to the target template.
+    4. For nested structures, use dot notation (e.g., "user.id").
+    5. For arrays, use array notation (e.g., "users[].id").
+    6. The JOLT spec must strictly follow the pattern given in the example.
+    7. The output event element should not have any nested elements or arrays.
+    8. Only include fields that exist in the OCSF input; otherwise, they will be set to null.
+
   agent: ocsf_jolt_parser
   output_file: jolt_spec.json
+
+validate_jolt_spec:
+  description: |
+    Validate the generated JOLT specification by applying it to the provided OCSF input and
+    comparing the produced output with the expected output template.
+    If needed, use the jolt_transform tool to test partial mappings.
+    Inputs:
+    - OCSF Event Log File: {input_file}
+    - Expected Output Template: {output_template}
+    - Generated JOLT Spec File: {generated_spec_file}
+
+    Validation rules:
+    1. The transformation must succeed without errors.
+    2. The produced output must match the expected output exactly (key set and values).
+    3. If there are mismatches, list each difference with its JSON path, actual, and expected value.
+
+    Output:
+    - A JSON report with fields:
+      - success: boolean
+      - differences: list of { path, actual, expected }
+
+  agent: jolt_spec_validator
+  output_file: validation_report.json
+  context:
+    - generate_jolt_spec

@@ -74,12 +74,7 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef embed_and_store(\n    input_text: Input[Artifact],\n    collection_name:\
           \ str\n):\n    import chromadb\n    from sentence_transformers import SentenceTransformer\n\
-          \n    # Connect to ChromaDB service in the cluster using v2 API\n    client\
-          \ = chromadb.HttpClient(\n        host='chroma-service.chromedb.svc.cluster.local',\
-          \  # Updated namespace to chromedb\n        port=8000,  # Default ChromaDB\
-          \ HTTP port; adjust if needed\n        ssl=False,\n        headers={\"x-chroma-client-version\"\
-          : \"2.0.0\"}\n    )\n\n    # Get or create collection with v2 API\n    try:\n\
-          \        collection = client.get_collection(name=collection_name)\n    except\
+          \n    # Connect to ChromaDB service with v2 API and explicit tenant/database\n    client = chromadb.HttpClient(\n        host='chroma-service.chromedb.svc.cluster.local',\n        port=8000,\n        ssl=False,\n        headers={\n            \"x-chroma-client-version\": \"2.0.0\",\n            \"x-chroma-request-source\": \"kubeflow-pipeline\"\n        },\n        tenant=\"default_tenant\",\n        database=\"default_database\"\n    )\n\n    # Get or create collection with v2 API\n    try:\n        collection = client.get_collection(name=collection_name)\n    except\
           \ ValueError:\n        # Collection doesn't exist, create it\n        collection\
           \ = client.create_collection(name=collection_name)\n\n    # Load embedding\
           \ model\n    model = SentenceTransformer('all-MiniLM-L6-v2')\n\n    # Read\
@@ -157,10 +152,7 @@ deploymentSpec:
           \ sentence_transformers import SentenceTransformer\n    import google.generativeai\
           \ as genai\n    import os\n\n    # Configure Gemini API key (assume it's\
           \ set as env var or secret)\n    genai.configure(api_key=os.getenv('GEMINI_API_KEY'))\n\
-          \n    # Connect to ChromaDB service using v2 API\n    client = chromadb.HttpClient(\n\
-          \        host='chroma-service.chromedb.svc.cluster.local',  # Updated namespace\
-          \ to chromedb\n        port=8000,\n        ssl=False,\n        headers={\"\
-          x-chroma-client-version\": \"2.0.0\"}\n    )\n\n    # Get collection with\
+          \n    # Connect to ChromaDB service with v2 API and explicit tenant/database\n    client = chromadb.HttpClient(\n        host='chroma-service.chromedb.svc.cluster.local',\n        port=8000,\n        ssl=False,\n        headers={\n            \"x-chroma-client-version\": \"2.0.0\",\n            \"x-chroma-request-source\": \"kubeflow-pipeline\"\n        },\n        tenant=\"default_tenant\",\n        database=\"default_database\"\n    )\n\n    # Get collection with\
           \ v2 API\n    try:\n        collection = client.get_collection(name=collection_name)\n\
           \    except ValueError:\n        raise ValueError(f\"Collection '{collection_name}'\
           \ does not exist\")\n\n    # Load embedding model\n    model = SentenceTransformer('all-MiniLM-L6-v2')\n\

@@ -4,6 +4,7 @@ import os
 import json
 import logging
 import argparse
+import re
 from typing import Dict, Any, Optional
 from pathlib import Path
 
@@ -93,6 +94,18 @@ def load_mappings(mappings_file: Optional[str]) -> Dict[str, Any]:
         logger.error(error_msg, exc_info=True)
         raise ValueError(error_msg) from e
 
+def clean_json_output(output_str: str) -> str:
+    """
+    Cleans the output string to extract valid JSON.
+    Removes markdown code blocks and extra whitespace.
+    """
+    # Remove markdown code blocks
+    pattern = r"```(?:json)?\s*(.*?)\s*```"
+    match = re.search(pattern, output_str, re.DOTALL)
+    if match:
+        return match.group(1)
+    return output_str.strip()
+
 def run():
     """Run the OCSF to JOLT conversion."""
     logger.info("Starting OCSF to JOLT conversion")
@@ -139,7 +152,9 @@ def run():
             'input_file': input_file,
             'output_template': output_template,
             'field_mappings': field_mappings,
-            'model': args.model
+            'model': args.model,
+            'generated_spec_file': args.output,  # Add this line to pass the output file path to the validation task
+            'output_file': args.output  # This is used by the generation task
         }
         logger.debug(f"Crew inputs: {json.dumps(inputs, indent=2)}")
         
@@ -181,17 +196,58 @@ def run():
             raise
         logger.info("Task completed successfully")
         
-        # Extract the raw output from CrewOutput object
-        result_data = result.raw_output if hasattr(result, 'raw_output') else str(result)
-        logger.debug(f"Task result: {json.dumps(result_data, indent=2, default=str)}")
+        # Handle the output
+        # The result of kickoff is the output of the last task (validation task)
+        # We need to find the output of the generation task to save as the Jolt spec
         
-        # Save the output
-        output_path = Path(args.output).absolute()
-        with open(output_path, 'w') as f:
-            json.dump(result_data, f, indent=2, default=str)
+        jolt_spec_output = None
         
-        print(f"\n✅ JOLT specification successfully generated and saved to: {output_path}")
-        logger.info(f"Output saved to {output_path}")
+        # Check if we have access to individual task outputs
+        if hasattr(result, 'tasks_output') and result.tasks_output:
+            logger.info(f"Found {len(result.tasks_output)} task outputs")
+            # Assuming the first task is the generation task as defined in crew.py
+            # tasks = [gen_task, val_task]
+            if len(result.tasks_output) >= 1:
+                jolt_spec_output = result.tasks_output[0].raw
+                logger.info("Retrieved output from the first task (generation task)")
+        else:
+            # Fallback: if we can't access tasks_output, we might be in a mode where
+            # only the final result is available. But since we know the final result
+            # is the validation report, this is problematic.
+            # However, if the user ran ONLY the generation task (e.g. via some other means),
+            # then result.raw_output might be the spec.
+            # For now, let's warn if we can't find the spec.
+            logger.warning("Could not access individual task outputs. Checking if final result looks like a spec.")
+            result_data = result.raw if hasattr(result, 'raw') else str(result)
+            if isinstance(result_data, str) and "operation" in result_data and "shift" in result_data:
+                 jolt_spec_output = result_data
+            else:
+                 logger.error("Could not locate Jolt spec in task outputs.")
+
+        if jolt_spec_output:
+            # Clean and parse the output
+            final_data = jolt_spec_output
+            logger.info("[INFO] Checking if jolt_spec_output is a string")
+            if isinstance(jolt_spec_output, str):
+                logger.info("[INFO] jolt_spec_output is a string")
+                cleaned_data = clean_json_output(jolt_spec_output)
+                try:
+                    final_data = json.loads(cleaned_data)
+                    logger.info("[INFO] Successfully cleaned and parsed JSON output")
+                except json.JSONDecodeError:
+                    logger.warning("[WARNING] Could not parse cleaned output as JSON, saving as raw string")
+                    final_data = cleaned_data
+            
+            # Save the output
+            output_path = Path(args.output).absolute()
+            with open(output_path, 'w') as f:
+                json.dump(final_data, f, indent=2, default=str)
+            
+            print(f"\n✅ JOLT specification successfully generated and saved to: {output_path}")
+            logger.info(f"[SUCCESS] Output saved to {output_path}")
+        else:
+            logger.error("Failed to extract Jolt specification from crew output.")
+            print("\n❌ Error: Failed to extract Jolt specification from crew output.", file=sys.stderr)
         
     except Exception as e:
         import traceback
