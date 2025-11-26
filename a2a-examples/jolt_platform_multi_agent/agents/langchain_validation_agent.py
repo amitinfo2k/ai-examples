@@ -54,7 +54,7 @@ class JoltValidator:
     
     def _call_mcp_jolt_transform(self, jolt_spec: List[Dict], input_json: Dict) -> Dict:
         """
-        Call the JOLT MCP server to perform transformation.
+        Call the JOLT MCP server via HTTP to perform transformation.
         
         Args:
             jolt_spec: JOLT specification
@@ -63,61 +63,68 @@ class JoltValidator:
         Returns:
             Transformed JSON
         """
-        import subprocess
+        import requests
         import os
+        import sys
+        import json
         
-        # Path to MCP server
-        mcp_server_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "mcp_servers", "jolt_server.py"
-        )
+        # Get MCP server URL from environment
+        mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8080")
         
-        # Prepare request
-        request = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": "transform_jolt",
-                "arguments": {
-                    "jolt_spec": jolt_spec,
-                    "input_json": input_json
-                }
-            }
-        }
+        print(f"\n{'=' * 60}", file=sys.stderr)
+        print(f"🌐 Validator: Calling MCP Server at {mcp_server_url}", file=sys.stderr)
+        print(f"📋 Validator: JOLT Spec ({len(jolt_spec)} operations):", file=sys.stderr)
+        print(json.dumps(jolt_spec, indent=2), file=sys.stderr)
+        print(f"📥 Validator: Input JSON:", file=sys.stderr)
+        print(json.dumps(input_json, indent=2), file=sys.stderr)
         
         try:
-            # Call MCP server
-            process = subprocess.Popen(
-                [sys.executable, mcp_server_path],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+            # Call MCP server via HTTP
+            print(f"⏳ Validator: Making POST request to {mcp_server_url}/transform...", file=sys.stderr)
+            response = requests.post(
+                f"{mcp_server_url}/transform",
+                json={
+                    "jolt_spec": jolt_spec,
+                    "input_json": input_json
+                },
+                timeout=10
             )
             
-            # Send request
-            stdout, stderr = process.communicate(input=json.dumps(request) + "\n", timeout=10)
+            print(f"📡 Validator: Received response with status code {response.status_code}", file=sys.stderr)
             
-            if stderr:
-                print(f"MCP Server stderr: {stderr}", file=sys.stderr)
+            if response.status_code != 200:
+                error_msg = f"MCP Server returned status {response.status_code}: {response.text}"
+                print(f"❌ Validator: {error_msg}", file=sys.stderr)
+                raise Exception(error_msg)
             
-            # Parse response
-            response = json.loads(stdout.strip())
+            result = response.json()
+            print(f"📥 Validator: Response JSON: {result}", file=sys.stderr)
             
-            if "result" in response and response["result"].get("success"):
-                return response["result"]["result"]
-            elif "error" in response:
-                raise Exception(f"MCP Server error: {response['error'].get('message', 'Unknown error')}")
-            else:
-                raise Exception("MCP Server returned unexpected response")
-                
-        except subprocess.TimeoutExpired:
-            process.kill()
-            raise Exception("MCP Server timeout")
+            if not result.get("success"):
+                error_msg = result.get("error", "Unknown error")
+                print(f"❌ Validator: MCP transformation failed: {error_msg}", file=sys.stderr)
+                raise Exception(f"MCP transformation failed: {error_msg}")
+            
+            transformed_result = result.get("result", {})
+            print(f"✅ Validator: MCP Server returned transformed result: {transformed_result}", file=sys.stderr)
+            print(f"{'=' * 60}\n", file=sys.stderr)
+            
+            return transformed_result
+            
+        except requests.exceptions.Timeout:
+            error_message = "MCP Server request timed out"
+            print(f"⚠️ Validator: {error_message}, using fallback implementation", file=sys.stderr)
+            print(f"{'=' * 60}\n", file=sys.stderr)
+            return self._apply_jolt_transformation_fallback(jolt_spec, input_json)
+        except requests.exceptions.ConnectionError as e:
+            error_message = f"Cannot connect to MCP Server at {mcp_server_url}: {str(e)}"
+            print(f"⚠️ Validator: {error_message}, using fallback implementation", file=sys.stderr)
+            print(f"{'=' * 60}\n", file=sys.stderr)
+            return self._apply_jolt_transformation_fallback(jolt_spec, input_json)
         except Exception as e:
             # Fallback to internal implementation if MCP server fails
-            print(f"Warning: MCP server failed ({e}), using fallback implementation")
+            print(f"⚠️ Validator: MCP server failed ({e}), using fallback implementation", file=sys.stderr)
+            print(f"{'=' * 60}\n", file=sys.stderr)
             return self._apply_jolt_transformation_fallback(jolt_spec, input_json)
     
     def _apply_jolt_transformation_fallback(self, jolt_spec: List[Dict], input_json: Dict) -> Dict:

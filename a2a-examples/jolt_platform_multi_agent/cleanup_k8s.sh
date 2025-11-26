@@ -7,6 +7,7 @@ echo "🗑️  Deleting application deployments..."
 kubectl delete -f k8s/validator.yaml --ignore-not-found=true
 kubectl delete -f k8s/creator.yaml --ignore-not-found=true
 kubectl delete -f k8s/orchestrator.yaml --ignore-not-found=true
+kubectl delete -f k8s/mcp-server.yaml --ignore-not-found=true
 
 echo "🗑️  Deleting Kafka and Zookeeper..."
 kubectl delete -f k8s/kafka.yaml --ignore-not-found=true
@@ -22,6 +23,7 @@ echo "🗑️  Deleting any remaining pods..."
 kubectl delete pods -l app=jolt-orchestrator --ignore-not-found=true
 kubectl delete pods -l app=jolt-creator --ignore-not-found=true
 kubectl delete pods -l app=jolt-validator --ignore-not-found=true
+kubectl delete pods -l app=mcp-server --ignore-not-found=true
 kubectl delete pods -l app=kafka --ignore-not-found=true
 kubectl delete pods -l app=zookeeper --ignore-not-found=true
 

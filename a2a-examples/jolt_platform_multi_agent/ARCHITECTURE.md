@@ -138,19 +138,58 @@ def get_message_bus() -> MessageBus:
     return InMemoryMessageBus()
 ```
 
-### 5. MCP Server
+### 5. MCP Server (Standalone HTTP Service)
 
-**File**: `mcp_servers/jolt_server.py`
+**File**: `mcp_servers/mcp_http_server.py`
+
+**Deployment**: Standalone Kubernetes service (2 replicas)
 
 **Responsibilities**:
-- JOLT transformations
-- Tool exposure via MCP protocol
-- Process isolation
+- JOLT transformations via HTTP API
+- Load-balanced request handling
+- Stateless transformation processing
+
+**Architecture**:
+```
+Validator → HTTP Request → MCP Server Service (LoadBalancer)
+                                    ↓
+                          ┌─────────┴──────────┐
+                          ↓                    ↓
+                    MCP Server Pod 1    MCP Server Pod 2
+                    (Port 8080)         (Port 8080)
+```
+
+**Communication**:
+- **Protocol**: HTTP/REST
+- **Endpoint**: `http://mcp-server:8080/transform`
+- **Request Format**:
+  ```json
+  {
+    "jolt_spec": [...],
+    "input_json": {...}
+  }
+  ```
+- **Response Format**:
+  ```json
+  {
+    "success": true,
+    "result": {...},
+    "error": null
+  }
+  ```
 
 **Benefits**:
-- Clean separation of concerns
-- Reusable across agents
-- Standard protocol (MCP)
+- **Scalability**: Independent horizontal scaling (currently 2 replicas)
+- **Performance**: No subprocess overhead, persistent process
+- **Observability**: Dedicated logs and metrics
+- **Reliability**: Load balanced, automatic pod restart
+- **Maintainability**: Clear service boundary
+
+**Debug Logging**:
+- Shows received requests with full JOLT spec and input JSON
+- Shows transformation results
+- All logs formatted with JSON indentation for readability
+- Uses emoji prefixes (🔄, 📥, 📋, 🔧, ✅, ❌) for easy scanning
 
 ## Message Flow
 
@@ -222,8 +261,17 @@ def get_message_bus() -> MessageBus:
 │  ┌────────────────────────────────┐│
 │  │  jolt-validator (Deployment)   ││
 │  │  - LangChain agent             ││
-│  │  - MCP client                  ││
+│  │  - HTTP client to MCP Server  ││
 │  │  - Scalable (replicas: M)     ││
+│  └────────────────────────────────┘│
+│                                     │
+│  ┌────────────────────────────────┐│
+│  │  mcp-server (Deployment)       ││
+│  │  - FastAPI HTTP server         ││
+│  │  - JOLT transformation engine  ││
+│  │  - Replicas: 2 (default)      ││
+│  │  - Port 8080                   ││
+│  │  - ClusterIP Service           ││
 │  └────────────────────────────────┘│
 │                                     │
 │  ┌────────────────────────────────┐│
@@ -244,10 +292,12 @@ def get_message_bus() -> MessageBus:
 **Horizontal Pod Autoscaling**:
 - Creator agents: Scale based on `START_WORKFLOW` topic lag
 - Validator agents: Scale based on `SPEC_CREATED` topic lag
+- **MCP Server**: Scale based on CPU/memory usage or request rate (2 replicas default)
 - Orchestrator: Fixed (1 replica typically)
 
 **Resource Allocation**:
 ```yaml
+# Agents
 resources:
   requests:
     memory: "512Mi"
@@ -255,6 +305,15 @@ resources:
   limits:
     memory: "2Gi"
     cpu: "2000m"
+
+# MCP Server (lighter)
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
 ```
 
 ## Data Flow
@@ -284,8 +343,10 @@ resources:
 5. **Validation**
    ```
    Validator ← Kafka[SPEC_CREATED]
-   Validator → MCP Server (transformation)
-   Validator → Compare output
+   Validator → HTTP POST http://mcp-server:8080/transform (JOLT Spec + Input JSON)
+   MCP Server → Performs transformation
+   MCP Server → HTTP 200 (Transformed JSON)
+   Validator → Compare output with expected
    Validator → Kafka[WORKFLOW_COMPLETE]
    ```
 

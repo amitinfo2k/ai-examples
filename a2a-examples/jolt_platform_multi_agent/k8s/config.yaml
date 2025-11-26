@@ -3,8 +3,7 @@ kind: ConfigMap
 metadata:
   name: jolt-config
 data:
-  #GEMINI_MODEL: "gemini-2.0-flash"
-  GEMINI_MODEL: "gemini-2.5-pro"
+  GEMINI_MODEL: "gemini-2.0-flash"
   KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
   KAFKA_GROUP_ID: "jolt-group"
-
+  MCP_SERVER_URL: "http://mcp-server:8080"

@@ -29,6 +29,7 @@ echo "📦 Building Docker images..."
 docker build -t jolt-orchestrator:latest -f Dockerfile.orchestrator .
 docker build -t jolt-creator:latest -f Dockerfile.creator .
 docker build -t jolt-validator:latest -f Dockerfile.validator .
+docker build -t mcp-server:latest -f Dockerfile.mcp .
 
 # Load images into Kind/Minikube
 if command -v kind &> /dev/null; then
@@ -39,6 +40,7 @@ if command -v kind &> /dev/null; then
         kind load docker-image jolt-orchestrator:latest --name "$KIND_CLUSTER"
         kind load docker-image jolt-creator:latest --name "$KIND_CLUSTER"
         kind load docker-image jolt-validator:latest --name "$KIND_CLUSTER"
+        kind load docker-image mcp-server:latest --name "$KIND_CLUSTER"
     fi
 elif command -v minikube &> /dev/null; then
     if minikube status | grep -q "Running"; then
@@ -46,6 +48,7 @@ elif command -v minikube &> /dev/null; then
         minikube image load jolt-orchestrator:latest
         minikube image load jolt-creator:latest
         minikube image load jolt-validator:latest
+        minikube image load mcp-server:latest
     fi
 fi
 
@@ -74,6 +77,7 @@ kubectl wait --for=condition=complete --timeout=60s job/kafka-topic-creator || e
 
 # Deploy Apps
 echo "🚀 Deploying application components..."
+kubectl apply -f k8s/mcp-server.yaml
 kubectl apply -f k8s/orchestrator.yaml
 kubectl apply -f k8s/creator.yaml
 kubectl apply -f k8s/validator.yaml
