@@ -1,0 +1,16 @@
+{                                                  
+  "category_uid": 2,                               
+  "category_name": "Findings",                     
+  "class_uid": 2004,                                                                                  
+  "class_name": "Detection Finding",               
+  "metadata": {                                                                                       
+    "version": "1.6.0",                                                                               
+    "product": {                                   
+      "name": "Acme Security Defender",            
+      "vendor_name": "Acme Security",              
+      "version": "5.2.1"                           
+    },                                             
+    "uid": "12345678-abcd-1234-abcd-1234567890ab",                                                    
+    "event_dt": "2025-11-15T15:00:00.123Z"         
+  }                                             
+}

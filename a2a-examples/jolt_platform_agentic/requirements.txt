@@ -1,0 +1,28 @@
+# Core AI Frameworks
+crewai[google-genai]>=0.28.0
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.0.10
+
+# Google Gemini Integration
+langchain-google-genai>=2.0.0
+google-generativeai>=0.3.0
+
+# LiteLLM - Required by CrewAI for Gemini
+litellm
+confluent-kafka>=2.3.0
+
+# API and Web Framework
+fastapi>=0.104.0
+uvicorn>=0.24.0
+
+# Data Validation
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# JSON Processing
+# Using standard Python libraries for JSON processing
+
+# Additional dependencies that might be needed
+typing-extensions>=4.0.0

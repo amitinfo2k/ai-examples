@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jolt-creator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jolt-creator
+  template:
+    metadata:
+      labels:
+        app: jolt-creator
+    spec:
+      containers:
+      - name: creator
+        image: jolt-creator:latest
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: jolt-config
+        - secretRef:
+            name: jolt-secrets

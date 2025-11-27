@@ -1,0 +1,19 @@
+[
+  {
+    "operation": "shift",
+    "spec": {
+      "user.firstName": "profile.fullName",
+      "user.lastName": "profile.fullName",
+      "user.email": "profile.contact.email",
+      "user.age": "profile.age",
+      "metadata.timestamp": "eventTime",
+      "metadata.source": "dataSource"
+    }
+  },
+  {
+    "operation": "modify",
+    "spec": {
+      "profile.fullName": "=join(' ', @(1,profile.fullName), @(1,profile.fullName))"
+    }
+  }
+]

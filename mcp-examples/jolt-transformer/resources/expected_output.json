@@ -1,0 +1,10 @@
+{
+    "events": [
+        {
+            "category_id": 2,
+            "baseeventid": 2004,
+            "class_name": "Detection Finding",
+            "product_name": "Acme Security Defender"
+        }
+    ]
+}

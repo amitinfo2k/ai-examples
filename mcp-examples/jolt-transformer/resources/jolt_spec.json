@@ -1,0 +1,16 @@
+[                                                  
+  {                                                
+    "operation": "shift",                          
+    "spec": {                               
+      "category_uid": "events[0].category_id",     
+      "class_uid": "events[0].baseeventid",        
+      "class_name": "events[0].class_name",    
+      "metadata": {                                
+        "product": {                               
+          "name": "events[0].product_name"         
+        }                                          
+      }                                           
+            
+    }                                              
+  }                                                
+]      
