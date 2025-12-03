@@ -1,0 +1,12 @@
+{
+    "mcpServers": {
+        "jolt-transformer": {
+            "command": "/absolute/path/to/mcp-jolt-server",
+            "args": [
+                "mcp"
+            ],
+            "description": "JSON transformation server using JOLT specifications",
+            "env": {}
+        }
+    }
+}

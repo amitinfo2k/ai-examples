@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jolt-validator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jolt-validator
+  template:
+    metadata:
+      labels:
+        app: jolt-validator
+    spec:
+      containers:
+      - name: validator
+        image: jolt-validator:latest
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: jolt-config
+        - secretRef:
+            name: jolt-secrets

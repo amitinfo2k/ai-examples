@@ -7,12 +7,23 @@ CONTAINER_NAME := mcp-jolt-server
 PORT := 8081
 WORKDIR := /app
 
-.PHONY: build run stop clean test build-run
+# Kind Cluster Name
+KIND_CLUSTER_NAME ?= kind-calico-multus
+
+.PHONY: build run stop clean test build-run kind-load deploy
 
 # Build the Docker image
 build:
 	@echo "Building Docker image..."
 	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .
+
+# Load the image into Kind cluster
+kind-load:
+	@echo "Loading image into Kind cluster $(KIND_CLUSTER_NAME)..."
+	kind load docker-image $(IMAGE_NAME):$(IMAGE_TAG) --name $(KIND_CLUSTER_NAME)
+
+# Build and load into Kind
+deploy: build kind-load
 
 # Run the container in detached mode
 run:
@@ -47,6 +58,8 @@ build-run: build run
 help:
 	@echo "Available targets:"
 	@echo "  build     - Build the Docker image"
+	@echo "  kind-load - Load the image into Kind cluster (default: kind-calico-multus)"
+	@echo "  deploy    - Build and load into Kind"
 	@echo "  run       - Run the container"
 	@echo "  stop      - Stop the running container"
 	@echo "  clean     - Remove the Docker image and container"

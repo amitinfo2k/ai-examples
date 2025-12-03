@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/buger/jsonparser"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/tidwall/sjson"
 )
 
@@ -28,6 +30,12 @@ type TransformResponse struct {
 }
 
 func main() {
+	mcpCmd := flag.NewFlagSet("mcp", flag.ExitOnError)
+
+	mcpSSECmd := flag.NewFlagSet("mcp-sse", flag.ExitOnError)
+	mcpSSEPort := mcpSSECmd.String("port", "8081", "Port to run the MCP SSE server on")
+	mcpSSEBaseURL := mcpSSECmd.String("base-url", "", "Base URL for SSE server (e.g., http://localhost:8081)")
+
 	serverCmd := flag.NewFlagSet("server", flag.ExitOnError)
 	serverPort := serverCmd.String("port", "8081", "Port to run the server on")
 
@@ -37,12 +45,21 @@ func main() {
 	outputFile := transformCmd.String("output-file", "", "Path to output file (optional, prints to stdout if not provided)")
 
 	if len(os.Args) < 2 {
-		fmt.Println("expected 'server' or 'transform' subcommands")
+		fmt.Println("expected 'mcp', 'mcp-sse', 'server', or 'transform' subcommands")
 		os.Exit(1)
 	}
 
 	switch os.Args[1] {
+	case "mcp":
+		log.Println("Starting in MCP Server mode")
+		mcpCmd.Parse(os.Args[2:])
+		runMCPServer()
+	case "mcp-sse":
+		log.Println("Starting in MCP SSE Server mode")
+		mcpSSECmd.Parse(os.Args[2:])
+		runMCPSSEServer(*mcpSSEPort, *mcpSSEBaseURL)
 	case "server":
+		log.Println("Starting in HTTP Server mode")
 		serverCmd.Parse(os.Args[2:])
 		runServer(*serverPort)
 	case "transform":
@@ -53,15 +70,134 @@ func main() {
 		}
 		transformFromFiles(*inputFile, *specFile, *outputFile)
 	default:
-		fmt.Println("expected 'server' or 'transform' subcommands")
+		fmt.Println("expected 'mcp', 'mcp-sse', 'server', or 'transform' subcommands")
 		os.Exit(1)
 	}
+}
+
+func runMCPServer() {
+	// Create MCP server
+	s := server.NewMCPServer(
+		"jolt-transformer",
+		"1.0.0",
+	)
+
+	// Register the transform_json tool
+	tool := mcp.NewTool("transform",
+		mcp.WithDescription("Transform JSON data using JOLT (JSON to JSON transformation) specification"),
+		mcp.WithString("input_json",
+			mcp.Required(),
+			mcp.Description("The input JSON data to be transformed (as a JSON string)"),
+		),
+		mcp.WithString("jolt_spec",
+			mcp.Required(),
+			mcp.Description("The JOLT specification defining the transformation rules (as a JSON array string)"),
+		),
+	)
+
+	// Set the tool handler
+	s.AddTool(tool, handleTransformTool)
+
+	// Start the server with stdio transport
+	log.Println("Starting MCP server with stdio transport...")
+	if err := server.ServeStdio(s); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func runMCPSSEServer(port, baseURL string) {
+	// Create MCP server
+	s := server.NewMCPServer(
+		"jolt-transformer",
+		"1.0.0",
+	)
+
+	// Register the transform tool
+	tool := mcp.NewTool("transform",
+		mcp.WithDescription("Transform JSON data using JOLT (JSON to JSON transformation) specification"),
+		mcp.WithString("input_json",
+			mcp.Required(),
+			mcp.Description("The input JSON data to be transformed (as a JSON string)"),
+		),
+		mcp.WithString("jolt_spec",
+			mcp.Required(),
+			mcp.Description("The JOLT specification defining the transformation rules (as a JSON array string)"),
+		),
+	)
+
+	// Set the tool handler
+	s.AddTool(tool, handleTransformTool)
+
+	// Determine base URL
+	if baseURL == "" {
+		// Use SERVICE_NAME environment variable if set, otherwise use the service name that's used in k8s
+		host := os.Getenv("SERVICE_NAME")
+		if host == "" {
+			host = "jolt-mcp-service" // Default service name in k8s
+		}
+		baseURL = fmt.Sprintf("http://%s:%s", host, port)
+		log.Printf("Using service URL: %s\n", baseURL)
+	}
+
+	// Create SSE server
+	sseServer := server.NewSSEServer(s, baseURL)
+
+	// Start the server
+	log.Printf("Starting MCP server with SSE transport on :%s...\n", port)
+	log.Printf("SSE endpoint: %s/sse\n", baseURL)
+	log.Printf("Message endpoint: %s/message\n", baseURL)
+	log.Println("Note: Use TCP socket probes for health checks in Kubernetes")
+
+	// Bind to all network interfaces
+	if err := sseServer.Start("0.0.0.0:" + port); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func handleTransformTool(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	log.Printf("Received transform tool request with arguments: %+v\n", arguments)
+	// Extract arguments
+	inputJSONStr, ok := arguments["input_json"].(string)
+	if !ok {
+		return mcp.NewToolResultError("input_json must be a JSON string"), nil
+	}
+
+	joltSpecStr, ok := arguments["jolt_spec"].(string)
+	if !ok {
+		return mcp.NewToolResultError("jolt_spec must be a JSON array string"), nil
+	}
+
+	// Parse the JSON strings
+	var inputData interface{}
+	if err := json.Unmarshal([]byte(inputJSONStr), &inputData); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid input_json: %v", err)), nil
+	}
+
+	var specData interface{}
+	if err := json.Unmarshal([]byte(joltSpecStr), &specData); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid jolt_spec: %v", err)), nil
+	}
+
+	// Perform the transformation
+	result, err := transform(inputData, specData)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("transformation error: %v", err)), nil
+	}
+
+	// Convert result to JSON string
+	resultJSON, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("error formatting result: %v", err)), nil
+	}
+
+	// Return the result
+	return mcp.NewToolResultText(string(resultJSON)), nil
 }
 
 func runServer(port string) {
 	http.HandleFunc("/transform", handleTransformRequest)
 	http.HandleFunc("/health", handleHealthCheck)
-	log.Printf("Server starting on port %s...\n", port)
+	log.Printf("HTTP Server starting on port %s...\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
@@ -133,6 +269,7 @@ func handleTransformRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func transformFromFiles(inputFile, specFile, outputFile string) {
+	log.Printf("Starting transformation from files: input=%s, spec=%s, output=%s\n", inputFile, specFile, outputFile)
 	inputJSON, err := os.ReadFile(inputFile)
 	if err != nil {
 		log.Fatalf("Error reading input file: %v", err)
@@ -172,6 +309,7 @@ func transformFromFiles(inputFile, specFile, outputFile string) {
 }
 
 func transform(input, spec interface{}) (interface{}, error) {
+	log.Println("Executing core transformation logic")
 	// Convert input to JSON bytes
 	inputBytes, err := json.Marshal(input)
 	if err != nil {
@@ -207,6 +345,15 @@ func transform(input, spec interface{}) (interface{}, error) {
 			result, err = applyShift(result, spec)
 			if err != nil {
 				return nil, fmt.Errorf("error in shift operation: %v", err)
+			}
+		case "default":
+			spec, ok := op["spec"].(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("missing or invalid 'spec' in default operation")
+			}
+			result, err = applyDefault(result, spec)
+			if err != nil {
+				return nil, fmt.Errorf("error in default operation: %v", err)
 			}
 		// Add support for more JOLT operations here
 		default:
@@ -284,4 +431,44 @@ func applyShift(input []byte, spec map[string]interface{}) ([]byte, error) {
 
 	traverse(spec, []string{})
 	return outputJSON, nil
+}
+
+func applyDefault(input []byte, spec map[string]interface{}) ([]byte, error) {
+	// For default operation, we merge the spec into the input
+	// Only fields that don't exist in the input will be added
+	var inputMap map[string]interface{}
+	if err := json.Unmarshal(input, &inputMap); err != nil {
+		return nil, fmt.Errorf("error unmarshaling input: %v", err)
+	}
+
+	// Recursive function to apply defaults
+	var applyDefaults func(target map[string]interface{}, defaults map[string]interface{}, path []string)
+	applyDefaults = func(target map[string]interface{}, defaults map[string]interface{}, path []string) {
+		for key, defaultVal := range defaults {
+			currentPath := append(path, key)
+
+			if existingVal, exists := target[key]; exists {
+				// If the value exists and both are maps, recurse
+				if existingMap, isMap := existingVal.(map[string]interface{}); isMap {
+					if defaultMap, isDefaultMap := defaultVal.(map[string]interface{}); isDefaultMap {
+						applyDefaults(existingMap, defaultMap, currentPath)
+					}
+				}
+				// If value exists and is not a map, keep existing value (don't override)
+			} else {
+				// Value doesn't exist, set the default
+				target[key] = defaultVal
+			}
+		}
+	}
+
+	applyDefaults(inputMap, spec, []string{})
+
+	// Convert back to JSON
+	result, err := json.Marshal(inputMap)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling result: %v", err)
+	}
+
+	return result, nil
 }

@@ -1,0 +1,20 @@
+[
+    {
+        "operation": "shift",
+        "spec": {
+            "category_uid": "events[0].category_id",
+            "class_uid": "events[0].baseeventid"
+        }
+    },
+    {
+        "operation": "default",
+        "spec": {
+            "events": [
+                {
+                    "status": "active",
+                    "priority": "high"
+                }
+            ]
+        }
+    }
+]

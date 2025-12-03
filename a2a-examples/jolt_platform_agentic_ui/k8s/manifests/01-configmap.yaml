@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jolt-platform-config
+  namespace: jolt-platform
+data:
+  MCP_SERVICE_URL: "http://jolt-mcp-service:8081"
+  ORCHESTRATOR_URL: "http://jolt-orchestrator-service:80"
+  VALIDATOR_URL: "http://jolt-validator-service:80"
+  GENERATOR_URL: "http://jolt-generator-service:80"
+  # Gemini model configuration - change this to switch models or avoid quota issues
+  # Options: gemini/gemini-2.0-flash-exp, gemini/gemini-1.5-flash, gemini/gemini-1.5-pro
+  GEMINI_MODEL: "gemini/gemini-2.5-flash"
+

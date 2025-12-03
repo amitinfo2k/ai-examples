@@ -18,6 +18,10 @@ spec:
       - name: mcp-server
         image: mcp-jolt-server:latest
         imagePullPolicy: IfNotPresent
+        # Run in MCP SSE mode (HTTP-based MCP with Server-Sent Events)
+        # This provides MCP functionality over HTTP, suitable for Kubernetes
+        # Options: "mcp-sse" (MCP over HTTP/SSE), "server" (plain HTTP API), "mcp" (stdio - not for K8s)
+        args: ["mcp-sse"]
         ports:
         - containerPort: 8081
           name: http
@@ -29,14 +33,12 @@ spec:
             memory: "512Mi"
             cpu: "500m"
         livenessProbe:
-          httpGet:
-            path: /health
+          tcpSocket:
             port: 8081
           initialDelaySeconds: 10
           periodSeconds: 10
         readinessProbe:
-          httpGet:
-            path: /health
+          tcpSocket:
             port: 8081
           initialDelaySeconds: 5
           periodSeconds: 5

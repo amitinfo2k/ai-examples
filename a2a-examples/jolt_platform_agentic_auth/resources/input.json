@@ -1,0 +1,75 @@
+{
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "metadata": {
+      "version": "1.6.0",
+      "product": {
+        "name": "Acme Security Defender",
+        "vendor_name": "Acme Security",
+        "version": "5.2.1"
+      },
+      "uid": "12345678-abcd-1234-abcd-1234567890ab",
+      "event_dt": "2025-11-15T15:00:00.123Z"
+    },
+    "time": 1763295600123,
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create",
+    "severity_id": 3,
+    "severity": "Medium",
+    "finding": {
+      "activity_id": 1,
+      "activity_name": "Create",
+      "title": "Suspicious File Detected",
+      "desc": "A file with known ransomware characteristics (WannaCry variant) was detected on the endpoint.",
+      "created_time": 1763295600000,
+      "modified_time": 1763295600123,
+      "product_uid": "AS-DEF-1001",
+      "product_name": "Malware Detection Engine",
+      "status_id": 2,
+      "status": "In Progress"
+    },
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "WannaCry-File-Signature-Match",
+      "version": "3.1"
+    },
+    "device": {
+      "uid": "dev-4567-endpoint",
+      "hostname": "user-pc-05",
+      "type_id": 5,
+      "type": "Endpoint",
+      "os": {
+        "type_id": 100,
+        "type": "Windows",
+        "name": "Windows",
+        "version": "10.0.19044"
+      },
+      "ip_addr": "192.168.1.105"
+    },
+    "user": {
+      "uid": "user-9876",
+      "name": "jdoe",
+      "email_addr": "jdoe@example.com"
+    },
+    "resources": [
+      {
+        "type_id": 1,
+        "type": "File",
+        "name": "temp.exe",
+        "path": "C:\\Users\\jdoe\\Downloads\\temp.exe",
+        "file": {
+          "size": 20480,
+          "hashes": [
+            {
+              "type_id": 3,
+              "type": "SHA-256",
+              "value": "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890"
+            }
+          ]
+        }
+      }
+    ]
+}

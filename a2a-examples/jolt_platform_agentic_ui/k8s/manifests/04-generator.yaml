@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jolt-generator
+  namespace: jolt-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jolt-generator
+  template:
+    metadata:
+      labels:
+        app: jolt-generator
+    spec:
+      containers:
+      - name: jolt-generator
+        image: jolt-generator:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8081
+        envFrom:
+        - configMapRef:
+            name: jolt-platform-config
+        - secretRef:
+            name: jolt-secrets
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jolt-generator-service
+  namespace: jolt-platform
+spec:
+  selector:
+    app: jolt-generator
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8081
+  type: ClusterIP

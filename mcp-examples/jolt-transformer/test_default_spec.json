@@ -1,0 +1,10 @@
+[
+    {
+        "operation": "default",
+        "spec": {
+            "age": 0,
+            "country": "Unknown",
+            "active": true
+        }
+    }
+]

@@ -1,0 +1,25 @@
+# Core Backend
+fastapi
+uvicorn[standard]
+pydantic
+
+# Agents
+crewai[google-genai]
+langchain
+langchain-core
+langchain-google-genai
+langgraph
+
+# Frontend
+streamlit
+
+# Utilities
+python-multipart
+requests
+httpx
+deepdiff
+jsonpath-ng
+
+# MCP (Model Context Protocol)
+mcp
+fastmcp

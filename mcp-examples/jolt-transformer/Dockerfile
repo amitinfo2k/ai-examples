@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.22-alpine AS builder
+FROM golang:1.23.2-alpine AS builder
 
 WORKDIR /app
 
@@ -29,8 +29,15 @@ COPY --from=builder /app/mcp-jolt-server .
 # Copy example files (optional, can be mounted at runtime)
 # COPY input.json jolt_spec.json ./  # Optional example files; can be mounted at runtime
 
+# Copy the entrypoint script
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+
 # Expose the port the app runs on
 EXPOSE 8081
 
-# Command to run the binary
-CMD ["./mcp-jolt-server", "server"]
+# Set the entrypoint
+ENTRYPOINT ["./entrypoint.sh"]
+
+# Default command
+CMD ["server"]
