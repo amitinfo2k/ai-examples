@@ -6,7 +6,9 @@ A sophisticated multi-agent system demonstrating heterogeneous agent architectur
 
 This project showcases:
 - **Multi-Agent Architecture**: CrewAI (Generation) + LangGraph (Validation)
-- **MCP Server**: Secure file access via Model Context Protocol
+- **MCP Servers**: 
+  - **Google Drive MCP**: Secure file access via Model Context Protocol
+  - **Jolt MCP Server**: JOLT transformation engine for the Validator agent
 - **A2A Protocol**: Agent-to-Agent Collaborative Debugging
 - **Full Stack**: FastAPI (Backend) + Streamlit (Frontend)
 
@@ -20,7 +22,7 @@ This project showcases:
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              FastAPI Orchestrator (Port 8000)               │
+│              FastAPI Orchestrator (Port 8088)               │
 │    • Authentication & Authorization                         │
 │    • Task Management                                        │
 │    • Agent Coordination                                     │
@@ -28,10 +30,17 @@ This project showcases:
        │                      │                      │
        ▼                      ▼                      ▼
 ┌─────────────┐      ┌─────────────┐      ┌─────────────────┐
-│ MCP Server  │      │  Agent 1    │      │   Agent 2       │
-│  (GDrive)   │      │  (CrewAI)   │◄────►│  (LangGraph)    │
-│             │      │  Generator  │ A2A  │   Validator     │
-└─────────────┘      └─────────────┘      └─────────────────┘
+│ GDrive MCP  │      │  Agent 1    │      │   Agent 2       │
+│   Server    │◄─────│  (CrewAI)   │◄────►│  (LangGraph)    │
+│ (File I/O)  │      │  Generator  │ A2A  │   Validator     │
+└─────────────┘      └─────────────┘      └────────┬────────┘
+                                                    │
+                                                    ▼
+                                          ┌─────────────────┐
+                                          │  Jolt MCP       │
+                                          │  Server         │
+                                          │ (Transform)     │
+                                          └─────────────────┘
 ```
 
 ## 🚀 Quick Start
@@ -96,7 +105,7 @@ streamlit run app.py
 ## 📂 Project Structure
 
 ```
-azure-nebula/
+jolt_platform_agentic_ui/
 ├── orchestrator/          # FastAPI Backend
 │   ├── main.py           # API endpoints
 │   ├── models/           # Pydantic schemas
@@ -191,12 +200,32 @@ mcp_server/storage/
 ### Agent 1: Generator (CrewAI)
 - **Role**: Jolt Specification Expert
 - **Task**: Analyze input/output JSON and generate transformation spec
-- **Tools**: MCP File Reader
+- **Tools**: Google Drive MCP Server (File Reader)
+- **Port**: 8081 (when running as service)
 
 ### Agent 2: Validator (LangGraph)
 - **Role**: Validation & Quality Assurance
 - **Task**: Execute Jolt transformation and validate results
-- **Features**: A2A Collaborative Debugging Protocol
+- **Tools**: 
+  - **Jolt MCP Server**: Performs JOLT transformations via MCP protocol
+  - **DeepDiff**: Compares actual vs expected output
+- **Features**: 
+  - A2A Collaborative Debugging Protocol
+  - Direct communication with Generator for spec refinement
+- **Port**: 8080 (when running as service)
+
+### Jolt MCP Server
+- **Role**: JOLT Transformation Engine
+- **Technology**: Go-based MCP server with SSE transport
+- **Capabilities**:
+  - `transform` tool: Applies JOLT specifications to JSON data
+  - Supports operations: shift, default, remove, sort, cardinality
+- **Integration**: Used exclusively by the Validator agent for transformations
+- **Port**: 8081 (MCP SSE endpoint)
+- **Deployment Modes**:
+  - `mcp-sse`: HTTP-based MCP with Server-Sent Events (Kubernetes)
+  - `mcp`: stdio-based MCP (local development)
+  - `server`: Plain HTTP API mode
 
 ## 🔐 Authentication
 
@@ -222,7 +251,12 @@ The Agent-to-Agent protocol supports:
 - **Agents**: CrewAI, LangChain, LangGraph
 - **Frontend**: Streamlit
 - **Protocol**: MCP (Model Context Protocol)
+- **MCP Servers**:
+  - Google Drive MCP (Python) - File access
+  - Jolt MCP Server (Go) - JSON transformations
 - **Data**: JSON, DeepDiff
+- **Deployment**: Docker, Kubernetes (Kind)
+- **LLM**: Google Gemini (gemini-2.5-flash)
 
 ## 📖 Usage Example
 
@@ -231,6 +265,58 @@ The Agent-to-Agent protocol supports:
 3. Set input files (default: `input.json`, `output.json`)
 4. Click "Run Complete Workflow"
 5. View the A2A messages in the results tabs
+
+## 🐳 Kubernetes Deployment
+
+The system can be deployed to Kubernetes using the provided manifests:
+
+### Prerequisites
+- Docker
+- Kind (Kubernetes in Docker)
+- kubectl
+
+### Quick Deploy
+
+```bash
+# Build and load Docker images
+make build-all
+make load-all
+
+# Deploy to Kubernetes
+make deploy
+
+# Check status
+make status
+
+# View logs
+make logs-validator
+make logs-generator
+make logs-orchestrator
+```
+
+### Architecture Components
+
+The Kubernetes deployment includes:
+
+1. **Namespace**: `jolt-platform`
+2. **ConfigMap**: Environment variables and service URLs
+3. **Secrets**: API keys (GOOGLE_API_KEY)
+4. **Services**:
+   - `jolt-orchestrator-service` (Port 80)
+   - `jolt-validator-service` (Port 80)
+   - `jolt-generator-service` (Port 80)
+   - `jolt-mcp-service` (Port 8081) - Jolt MCP Server
+   - `jolt-frontend-service` (Port 8501)
+5. **Deployments**: All services with health checks and resource limits
+
+### Environment Variables
+
+Configured in `k8s/manifests/01-configmap.yaml`:
+- `MCP_SERVICE_URL`: Jolt MCP Server endpoint
+- `ORCHESTRATOR_URL`: Orchestrator service
+- `VALIDATOR_URL`: Validator service
+- `GENERATOR_URL`: Generator service
+- `GEMINI_MODEL`: LLM model selection
 
 ## 🎓 Learning Resources
 
