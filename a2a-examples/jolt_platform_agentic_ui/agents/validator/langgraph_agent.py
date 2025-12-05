@@ -3,6 +3,7 @@ from langgraph.graph import StateGraph, END
 from deepdiff import DeepDiff
 import json
 import uuid
+import os
 
 from agents.validator.jolt_utils import apply_jolt_shift_async
 from agents.validator.a2a_protocol import (
@@ -13,6 +14,29 @@ import logging
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Initialize LangSmith tracing if enabled
+if os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true":
+    try:
+        from langsmith import Client
+        from langchain_core.tracers import LangChainTracer
+        
+        # Create LangSmith tracer for LangGraph
+        langsmith_tracer = LangChainTracer(
+            project_name=os.getenv("LANGCHAIN_PROJECT", "jolt-platform")
+        )
+        logger.info("LangSmith tracing is ENABLED for LangGraph Validator")
+        logger.info(f"  Project: {os.getenv('LANGCHAIN_PROJECT', 'default')}")
+        TRACING_ENABLED = True
+    except ImportError as e:
+        logger.warning(f"LangSmith tracing requested but dependencies not installed: {e}")
+        langsmith_tracer = None
+        TRACING_ENABLED = False
+else:
+    logger.info("LangSmith tracing is DISABLED")
+    langsmith_tracer = None
+    TRACING_ENABLED = False
+
 
 class ValidatorState(TypedDict):
     """State for the validator workflow"""

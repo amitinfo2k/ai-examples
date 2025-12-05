@@ -37,10 +37,10 @@ push-frontend:
 
 
 load:
-	kind load docker-image jolt-orchestrator:latest --name kind-calico-multus
-	kind load docker-image jolt-validator:latest --name kind-calico-multus
-	kind load docker-image jolt-generator:latest --name kind-calico-multus
-	kind load docker-image jolt-frontend:latest --name kind-calico-multus
+	kind load docker-image jolt-orchestrator:latest --name kind
+	kind load docker-image jolt-validator:latest --name kind
+	kind load docker-image jolt-generator:latest --name kind
+	kind load docker-image jolt-frontend:latest --name kind
 
 # Kubernetes deploy targets
 deploy:

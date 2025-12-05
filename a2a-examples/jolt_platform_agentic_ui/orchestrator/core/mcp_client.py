@@ -28,6 +28,52 @@ class MCPClient:
         except Exception as e:
             return f"Error: {str(e)}"
 
+    async def list_files(self, auth_token: str, folder: str = "") -> dict:
+        """
+        Calls the MCP server to list files in a folder.
+        """
+        try:
+            from mcp_server.server import list_files
+            result = list_files(auth_token, folder)
+            return json.loads(result)
+        except ImportError:
+            return {"error": "Could not import MCP server"}
+        except json.JSONDecodeError:
+            return {"error": "Invalid JSON response from MCP server"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def write_file(self, path: str, content: str, auth_token: str) -> dict:
+        """
+        Calls the MCP server to write/upload a file.
+        """
+        try:
+            from mcp_server.server import write_file
+            result = write_file(path, content, auth_token)
+            return json.loads(result)
+        except ImportError:
+            return {"error": "Could not import MCP server"}
+        except json.JSONDecodeError:
+            return {"error": "Invalid JSON response from MCP server"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def delete_file(self, path: str, auth_token: str) -> dict:
+        """
+        Calls the MCP server to delete a file.
+        """
+        try:
+            from mcp_server.server import delete_file
+            result = delete_file(path, auth_token)
+            return json.loads(result)
+        except ImportError:
+            return {"error": "Could not import MCP server"}
+        except json.JSONDecodeError:
+            return {"error": "Invalid JSON response from MCP server"}
+        except Exception as e:
+            return {"error": str(e)}
+
 # Singleton instance
 SERVER_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "mcp_server", "server.py")
 mcp_client = MCPClient(SERVER_PATH)
+

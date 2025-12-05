@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Union, Optional
 import logging
 
 from agents.generator.crew_agent import JoltSpecGenerator
@@ -31,6 +31,14 @@ class GenerateRequest(BaseModel):
 class RefineRequest(BaseModel):
     current_spec: Union[List[Dict[str, Any]], Dict[str, Any]]
     error_report: List[Dict[str, Any]]
+
+
+class PromptRefineRequest(BaseModel):
+    current_spec: Union[List[Dict[str, Any]], Dict[str, Any]]
+    user_feedback: str
+    input_json: Optional[Dict[str, Any]] = None
+    expected_output: Optional[Dict[str, Any]] = None
+    validation_errors: Optional[List[Dict[str, Any]]] = None
 
 
 @app.get("/health")
@@ -98,6 +106,39 @@ async def refine_jolt_spec(request: RefineRequest):
             )
         
         raise HTTPException(status_code=500, detail=f"Refinement failed: {error_msg}")
+
+
+@app.post("/refine-with-prompt")
+async def refine_jolt_spec_with_prompt(request: PromptRefineRequest):
+    """Refine a Jolt specification based on user's natural language feedback"""
+    try:
+        logger.info(f"Refining Jolt spec based on user feedback: {request.user_feedback[:100]}...")
+        generator = JoltSpecGenerator()
+        refined_spec = generator.refine_spec_with_prompt(
+            current_spec=request.current_spec,
+            user_feedback=request.user_feedback,
+            input_json=request.input_json,
+            expected_output=request.expected_output,
+            validation_errors=request.validation_errors
+        )
+        return {"jolt_spec": refined_spec, "status": "success"}
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error refining Jolt spec with prompt: {error_msg}", exc_info=True)
+        
+        # Check if it's a quota error
+        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "API Quota Exceeded",
+                    "message": "Gemini API quota exhausted. Please wait for quota reset or use a different API key.",
+                    "suggestion": "Set GEMINI_MODEL environment variable to try a different model or upgrade to paid tier.",
+                    "original_error": error_msg
+                }
+            )
+        
+        raise HTTPException(status_code=500, detail=f"Prompt-based refinement failed: {error_msg}")
 
 
 if __name__ == "__main__":

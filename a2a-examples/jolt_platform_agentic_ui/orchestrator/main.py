@@ -17,6 +17,14 @@ class ValidateRequestBody(BaseModel):
     jolt_spec: Union[List[Dict[str, Any]], Dict[str, Any]]
     expected_output: Optional[Dict[str, Any]] = None
 
+
+class PromptRefineRequestBody(BaseModel):
+    current_spec: Union[List[Dict[str, Any]], Dict[str, Any]]
+    user_feedback: str
+    input_json: Optional[Dict[str, Any]] = None
+    expected_output: Optional[Dict[str, Any]] = None
+    validation_errors: Optional[List[Dict[str, Any]]] = None
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,6 +81,66 @@ manager = ConnectionManager()
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "orchestrator"}
+
+
+# ===== GDrive File Management Endpoints =====
+
+@app.get("/files/list")
+async def list_files(folder: str = "", auth_token: str = "valid_token"):
+    """List files in the mock GDrive storage"""
+    try:
+        from orchestrator.core.mcp_client import mcp_client
+        result = await mcp_client.list_files(auth_token, folder)
+        return result
+    except Exception as e:
+        logger.error(f"Error listing files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/files/read")
+async def read_file(path: str, auth_token: str = "valid_token"):
+    """Read a file from mock GDrive storage"""
+    try:
+        from orchestrator.core.mcp_client import mcp_client
+        content = await mcp_client.read_file(path, auth_token)
+        if content.startswith("Error:"):
+            raise HTTPException(status_code=400, detail=content)
+        return {"path": path, "content": content}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class WriteFileRequest(BaseModel):
+    path: str
+    content: str
+    auth_token: str = "valid_token"
+
+
+@app.post("/files/write")
+async def write_file(request: WriteFileRequest):
+    """Write/upload a file to mock GDrive storage"""
+    try:
+        from orchestrator.core.mcp_client import mcp_client
+        result = await mcp_client.write_file(request.path, request.content, request.auth_token)
+        return result
+    except Exception as e:
+        logger.error(f"Error writing file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/files/delete")
+async def delete_file(path: str, auth_token: str = "valid_token"):
+    """Delete a file from mock GDrive storage"""
+    try:
+        from orchestrator.core.mcp_client import mcp_client
+        result = await mcp_client.delete_file(path, auth_token)
+        return result
+    except Exception as e:
+        logger.error(f"Error deleting file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/tasks", response_model=TaskResponse)
 async def create_task(request: TaskRequest):
@@ -207,6 +275,48 @@ async def validate_jolt_spec(
         )
     except Exception as e:
         logger.error(f"Error during validation: {e}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": "Internal Server Error",
+                "message": f"An unexpected error occurred: {str(e)}",
+                "traceback": traceback.format_exc().splitlines()
+            }
+        )
+
+
+@app.post("/refine-with-prompt")
+async def refine_jolt_spec_with_prompt(body: PromptRefineRequestBody):
+    """Refine a Jolt specification based on user's natural language feedback"""
+    try:
+        logger.info(f"Forwarding prompt-based refinement request to Generator")
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(
+                f"{GENERATOR_URL}/refine-with-prompt",
+                json={
+                    "current_spec": body.current_spec,
+                    "user_feedback": body.user_feedback,
+                    "input_json": body.input_json,
+                    "expected_output": body.expected_output,
+                    "validation_errors": body.validation_errors
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+        
+        return result
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error calling generator service: {e}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": "Generator Service Error",
+                "message": f"Failed to call generator service: {str(e)}",
+                "traceback": traceback.format_exc().splitlines()
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error during prompt-based refinement: {e}\n{traceback.format_exc()}")
         raise HTTPException(
             status_code=500, 
             detail={

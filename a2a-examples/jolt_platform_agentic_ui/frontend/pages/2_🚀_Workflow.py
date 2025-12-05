@@ -172,18 +172,39 @@ st.markdown("""
 Trigger the complete workflow: **Generation → Validation → A2A Debugging**
 """)
 
-# Info about file placement
-st.info("""
-📁 **File Location:** Place your JSON files in `mcp_server/storage/` directory.  
-Sample files (`input.json`, `output.json`) are already provided. You can replace them or add new ones.
-""")
+# Check if files are selected from File Browser
+if "selected_input_file" not in st.session_state:
+    st.session_state.selected_input_file = None
+if "selected_output_file" not in st.session_state:
+    st.session_state.selected_output_file = None
+
+# Info about file placement with link to File Browser
+col_info1, col_info2 = st.columns([3, 1])
+with col_info1:
+    st.info("""
+    📁 **File Location:** Files are stored in the mock GDrive storage.  
+    You can browse and upload files using the File Browser, or enter file paths manually below.
+    """)
+with col_info2:
+    st.page_link("pages/4_📁_File_Browser.py", label="📁 Open File Browser", icon="📁", use_container_width=True)
 
 col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("📄 Input Configuration")
-    input_file = st.text_input("Input JSON File", value="input.json")
-    output_file = st.text_input("Output JSON File", value="output.json")
+    
+    # Use selected file from File Browser as default if available
+    default_input = st.session_state.selected_input_file or "input.json"
+    default_output = st.session_state.selected_output_file or "output.json"
+    
+    input_file = st.text_input("Input JSON File", value=default_input)
+    output_file = st.text_input("Expected Output JSON File", value=default_output)
+    
+    # Show if files were selected from File Browser
+    if st.session_state.selected_input_file:
+        st.caption(f"✅ Input selected from File Browser")
+    if st.session_state.selected_output_file:
+        st.caption(f"✅ Output selected from File Browser")
 
 with col2:
     st.subheader("🎯 Workflow Options")
@@ -395,7 +416,20 @@ if 'workflow_result' in st.session_state:
     with tab2:
         st.subheader("Generated Jolt Specification")
         if "result" in result and "jolt_spec" in result["result"]:
-            st.json(result["result"]["jolt_spec"])
+            jolt_spec = result["result"]["jolt_spec"]
+            jolt_spec_str = json.dumps(jolt_spec, indent=2)
+            
+            # Display as copyable code block
+            st.code(jolt_spec_str, language="json")
+            
+            # Add a copy button with the raw JSON
+            st.download_button(
+                label="📋 Download Jolt Spec",
+                data=jolt_spec_str,
+                file_name="jolt_spec.json",
+                mime="application/json",
+                use_container_width=True
+            )
         else:
             st.warning("No Jolt spec in response")
     
@@ -424,93 +458,190 @@ if 'workflow_result' in st.session_state:
             # Manual Refinement Section
             if not validation.get("is_valid"):
                 st.divider()
-                st.subheader("🛠️ Manual Refinement (Human-in-the-Loop)")
-                st.info("The automated validation failed. You can manually edit the Jolt spec below and re-validate.")
+                st.subheader("🛠️ Human-in-the-Loop Refinement")
+                st.info("The automated validation failed after max retries. Choose a refinement method below.")
                 
                 # Get current spec and expected output from result
                 current_spec = result.get("result", {}).get("jolt_spec", [])
                 current_expected = result.get("result", {}).get("expected_output", {})
+                current_input = result.get("result", {}).get("input_json", {})
+                current_errors = validation.get("errors", [])
                 
-                with st.form("manual_refinement_form"):
-                    col_edit1, col_edit2 = st.columns(2)
+                # Create tabs for different refinement approaches
+                refine_tab1, refine_tab2 = st.tabs(["💬 AI-Assisted (Prompt Feedback)", "✏️ Manual JSON Edit"])
+                
+                with refine_tab1:
+                    st.markdown("""
+                    **Provide feedback in natural language** to help the AI fix the Jolt specification.
                     
-                    with col_edit1:
-                        # Text area for editing Jolt Spec
-                        edited_spec_str = st.text_area(
-                            "Edit Jolt Spec", 
-                            value=json.dumps(current_spec, indent=2),
-                            height=400
+                    Examples of helpful feedback:
+                    - "The baseeventid should come from class_uid, not category_uid"
+                    - "Map the product.name field to product_name in the output"
+                    - "The events array should contain objects with category_id, not category_uid"
+                    """)
+                    
+                    with st.form("prompt_refinement_form"):
+                        user_feedback = st.text_area(
+                            "Your Feedback / Instructions",
+                            placeholder="Describe what's wrong and how to fix it...\n\nExample: The class_name field should be mapped from the input's class_name, not generated as a static value.",
+                            height=150
                         )
+                        
+                        # Show context in expanders
+                        with st.expander("📋 View Current Context", expanded=False):
+                            col_ctx1, col_ctx2 = st.columns(2)
+                            with col_ctx1:
+                                st.caption("Current Jolt Spec")
+                                st.json(current_spec)
+                            with col_ctx2:
+                                st.caption("Validation Errors")
+                                for err in current_errors:
+                                    if isinstance(err, dict):
+                                        st.warning(f"**Path:** {err.get('path', 'N/A')}")
+                                        st.text(f"Expected: {err.get('expected', 'N/A')}")
+                                        st.text(f"Actual: {err.get('actual', 'N/A')}")
+                        
+                        prompt_submit = st.form_submit_button("🤖 Refine with AI", type="primary", use_container_width=True)
+                        
+                        if prompt_submit:
+                            if not user_feedback.strip():
+                                st.error("Please provide some feedback or instructions.")
+                            else:
+                                with st.spinner("AI is refining the Jolt spec based on your feedback..."):
+                                    try:
+                                        refine_response = requests.post(
+                                            f"{st.session_state.orchestrator_url}/refine-with-prompt",
+                                            json={
+                                                "current_spec": current_spec,
+                                                "user_feedback": user_feedback,
+                                                "input_json": current_input,
+                                                "expected_output": current_expected,
+                                                "validation_errors": current_errors
+                                            },
+                                            timeout=300
+                                        )
+                                        
+                                        if refine_response.status_code == 200:
+                                            refined_result = refine_response.json()
+                                            refined_spec = refined_result.get("jolt_spec", [])
+                                            
+                                            st.success("✅ AI generated a refined Jolt spec!")
+                                            st.code(json.dumps(refined_spec, indent=2), language="json")
+                                            
+                                            # Now validate the refined spec
+                                            st.info("Validating the refined spec...")
+                                            val_response = requests.post(
+                                                f"{st.session_state.orchestrator_url}/validate",
+                                                params={
+                                                    "input_path": result.get("result", {}).get("input_file_path", input_file),
+                                                    "output_path": result.get("result", {}).get("output_file_path", output_file),
+                                                    "auth_token": st.session_state.auth_token
+                                                },
+                                                json={
+                                                    "jolt_spec": refined_spec,
+                                                    "expected_output": current_expected
+                                                }
+                                            )
+                                            
+                                            if val_response.status_code == 200:
+                                                val_result = val_response.json()
+                                                if val_result.get("is_valid"):
+                                                    st.success("🎉 Validation Passed! The refined spec is correct.")
+                                                    st.balloons()
+                                                    
+                                                    # Update session state
+                                                    st.session_state.workflow_result["result"]["validation"] = val_result
+                                                    st.session_state.workflow_result["result"]["jolt_spec"] = refined_spec
+                                                    
+                                                    time.sleep(1)
+                                                    st.rerun()
+                                                else:
+                                                    st.warning("❌ Refined spec still has validation errors. You can provide more feedback or try manual editing.")
+                                                    st.code(json.dumps(val_result.get("errors", []), indent=2), language="json")
+                                            else:
+                                                st.error(f"Validation request failed: {val_response.text}")
+                                        else:
+                                            error_detail = refine_response.json() if refine_response.headers.get("content-type", "").startswith("application/json") else refine_response.text
+                                            st.error(f"Refinement failed: {error_detail}")
+                                            
+                                    except requests.exceptions.Timeout:
+                                        st.error("⏱️ Request timed out. The AI is taking too long. Try again or use manual editing.")
+                                    except Exception as e:
+                                        st.error(f"❌ Error: {str(e)}")
+                
+                with refine_tab2:
+                    st.markdown("**Manually edit the Jolt spec and/or expected output JSON**, then re-validate.")
                     
-                    with col_edit2:
-                        # Text area for editing Expected Output
-                        edited_expected_str = st.text_area(
-                            "Edit Expected Output JSON", 
-                            value=json.dumps(current_expected, indent=2),
-                            height=400,
-                            help="If the expected output is wrong, correct it here."
-                        )
-                    
-                    submit_button = st.form_submit_button("🔄 Re-Validate Manual Spec")
-                    
-                    if submit_button:
-                        try:
-                            # Parse edited inputs
-                            edited_spec = json.loads(edited_spec_str)
-                            edited_expected = json.loads(edited_expected_str)
-                            
-                            # Validate and unwrap if needed
-                            # Check if the spec was accidentally wrapped
-                            if isinstance(edited_spec, dict):
-                                if "jolt_spec" in edited_spec and "expected_output" in edited_spec:
-                                    # User accidentally pasted the whole request body
-                                    st.warning("Detected wrapped structure, unwrapping jolt_spec...")
-                                    edited_spec = edited_spec["jolt_spec"]
-                                    edited_expected = edited_spec.get("expected_output", edited_expected)
-                            
-                            # Ensure spec is a list
-                            if isinstance(edited_spec, dict):
-                                edited_spec = [edited_spec]
-                            
-                            with st.spinner("Validating manual spec..."):
-                                # Call validate endpoint directly
-                                val_response = requests.post(
-                                    f"{st.session_state.orchestrator_url}/validate",
-                                    params={
-                                        "input_path": result.get("result", {}).get("input_file_path", input_file),
-                                        "output_path": result.get("result", {}).get("output_file_path", output_file),
-                                        "auth_token": st.session_state.auth_token
-                                    },
-                                    json={
-                                        "jolt_spec": edited_spec,
-                                        "expected_output": edited_expected
-                                    }
-                                )
+                    with st.form("manual_refinement_form"):
+                        col_edit1, col_edit2 = st.columns(2)
+                        
+                        with col_edit1:
+                            edited_spec_str = st.text_area(
+                                "Edit Jolt Spec", 
+                                value=json.dumps(current_spec, indent=2),
+                                height=400
+                            )
+                        
+                        with col_edit2:
+                            edited_expected_str = st.text_area(
+                                "Edit Expected Output JSON", 
+                                value=json.dumps(current_expected, indent=2),
+                                height=400,
+                                help="If the expected output is wrong, correct it here."
+                            )
+                        
+                        submit_button = st.form_submit_button("🔄 Re-Validate Manual Spec", use_container_width=True)
+                        
+                        if submit_button:
+                            try:
+                                edited_spec = json.loads(edited_spec_str)
+                                edited_expected = json.loads(edited_expected_str)
                                 
-                                if val_response.status_code == 200:
-                                    manual_result = val_response.json()
-                                    if manual_result.get("is_valid"):
-                                        st.success("✅ Manual Fix Worked! Validation Passed.")
-                                        st.balloons()
-                                        
-                                        # Update session state with new valid result
-                                        st.session_state.workflow_result["result"]["validation"] = manual_result
-                                        st.session_state.workflow_result["result"]["jolt_spec"] = edited_spec
-                                        st.session_state.workflow_result["result"]["expected_output"] = edited_expected
-                                        
-                                        # Force a rerun to update the UI
-                                        time.sleep(1) # Give user a moment to see the success message
-                                        st.rerun()
-                                    else:
-                                        st.error("❌ Still Invalid")
-                                        st.json(manual_result.get("errors", []))
-                                else:
-                                    st.error(f"Validation failed: {val_response.text}")
+                                if isinstance(edited_spec, dict):
+                                    if "jolt_spec" in edited_spec and "expected_output" in edited_spec:
+                                        st.warning("Detected wrapped structure, unwrapping jolt_spec...")
+                                        edited_spec = edited_spec["jolt_spec"]
+                                        edited_expected = edited_spec.get("expected_output", edited_expected)
+                                
+                                if isinstance(edited_spec, dict):
+                                    edited_spec = [edited_spec]
+                                
+                                with st.spinner("Validating manual spec..."):
+                                    val_response = requests.post(
+                                        f"{st.session_state.orchestrator_url}/validate",
+                                        params={
+                                            "input_path": result.get("result", {}).get("input_file_path", input_file),
+                                            "output_path": result.get("result", {}).get("output_file_path", output_file),
+                                            "auth_token": st.session_state.auth_token
+                                        },
+                                        json={
+                                            "jolt_spec": edited_spec,
+                                            "expected_output": edited_expected
+                                        }
+                                    )
                                     
-                        except json.JSONDecodeError:
-                            st.error("❌ Invalid JSON format in editor")
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
+                                    if val_response.status_code == 200:
+                                        manual_result = val_response.json()
+                                        if manual_result.get("is_valid"):
+                                            st.success("✅ Manual Fix Worked! Validation Passed.")
+                                            st.balloons()
+                                            
+                                            st.session_state.workflow_result["result"]["validation"] = manual_result
+                                            st.session_state.workflow_result["result"]["jolt_spec"] = edited_spec
+                                            st.session_state.workflow_result["result"]["expected_output"] = edited_expected
+                                            
+                                            time.sleep(1)
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ Still Invalid")
+                                            st.code(json.dumps(manual_result.get("errors", []), indent=2), language="json")
+                                    else:
+                                        st.error(f"Validation failed: {val_response.text}")
+                                        
+                            except json.JSONDecodeError:
+                                st.error("❌ Invalid JSON format in editor")
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
     
     with tab4:
         st.subheader("Agent-to-Agent Communication")

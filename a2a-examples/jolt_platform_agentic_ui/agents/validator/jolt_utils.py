@@ -57,6 +57,27 @@ async def apply_jolt_shift_async(input_data: Union[Dict[str, Any], str], spec: U
             print("\n=== Transformation Result ===")
             print("Result type:", type(result))
             
+            # Handle CallToolResult object from MCP server
+            if hasattr(result, 'content') and hasattr(result, 'is_error'):
+                # This is a CallToolResult object
+                print("Detected CallToolResult object")
+                if result.is_error:
+                    error_text = result.content[0].text if result.content else "Unknown error"
+                    raise Exception(f"MCP tool returned error: {error_text}")
+                
+                # Extract the text content from the first content item
+                if result.content and len(result.content) > 0:
+                    text_content = result.content[0].text
+                    print(f"Extracted text content: {text_content[:200]}...")
+                    try:
+                        result = json.loads(text_content)
+                        print("Successfully parsed text content as JSON")
+                    except json.JSONDecodeError as e:
+                        print(f"Could not parse text content as JSON: {str(e)}")
+                        raise Exception(f"Invalid JSON from MCP server: {text_content}")
+                else:
+                    raise Exception("CallToolResult has no content")
+            
             # The result might be a string that needs to be parsed as JSON
             if isinstance(result, str):
                 try:
