@@ -1,5 +1,6 @@
 from crewai import Agent, Task, Crew, Process, LLM
 from agents.generator.tools import MCPReadFileTool
+from langsmith import traceable
 import json
 import os
 import logging
@@ -26,23 +27,23 @@ if os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true":
         trace.set_tracer_provider(tracer_provider)
         logger.info("OpenTelemetry TracerProvider configured with LangSmith processor")
         
-        # Step 2: Instrument CrewAI with OpenInference
+        # Step 2: Instrument CrewAI with OpenInference (for agent/task tracing)
         try:
             from openinference.instrumentation.crewai import CrewAIInstrumentor
             CrewAIInstrumentor().instrument(tracer_provider=tracer_provider)
-            logger.info("CrewAI instrumented with OpenInference -> LangSmith")
+            logger.info("CrewAI instrumented -> LangSmith")
             TRACING_ENABLED = True
         except ImportError:
             logger.warning("openinference-instrumentation-crewai not installed")
-            logger.warning("Install with: pip install openinference-instrumentation-crewai")
         
-        # Step 3: Also instrument OpenAI/LiteLLM for LLM call traces
+        # Step 3: Instrument LiteLLM for LLM calls & token tracking
+        # (CrewAI uses LiteLLM internally to call Gemini)
         try:
-            from openinference.instrumentation.openai import OpenAIInstrumentor
-            OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
-            logger.info("OpenAI/LiteLLM instrumented with OpenInference -> LangSmith")
+            from openinference.instrumentation.litellm import LiteLLMInstrumentor
+            LiteLLMInstrumentor().instrument(tracer_provider=tracer_provider)
+            logger.info("LiteLLM instrumented -> LangSmith (for token tracking)")
         except ImportError:
-            logger.info("openinference-instrumentation-openai not available (optional)")
+            logger.warning("openinference-instrumentation-litellm not installed")
         
         if TRACING_ENABLED:
             logger.info("LangSmith tracing is ENABLED for CrewAI")

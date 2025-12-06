@@ -15,9 +15,9 @@ langsmith
 opentelemetry-api
 opentelemetry-sdk
 opentelemetry-exporter-otlp
-# OpenInference instrumentation for CrewAI -> LangSmith tracing
-openinference-instrumentation-crewai
-openinference-instrumentation-openai
+# OpenInference instrumentation for LangSmith tracing
+openinference-instrumentation-crewai   # Agent/task tracing
+openinference-instrumentation-litellm  # LLM calls & token tracking (CrewAI uses LiteLLM)
 
 # Frontend
 streamlit
