@@ -1,0 +1,70 @@
+sequenceDiagram
+    participant User as Streamlit Frontend
+    participant Orch as K8s: Orchestrator Service
+    participant Gen as K8s: Generator (CrewAI)
+    participant Drive as K8s: GDrive MCP
+    participant Val as K8s: Validator (LangGraph)
+    participant Jolt as K8s: Jolt MCP
+    participant LS as LangSmith (Tracing)
+
+    Note over User, LS: Phase 1: Task Initiation
+    User->>Orch: POST /workflow/generate-and-validate
+    
+    Note over Orch, Gen: Phase 2: Generation (Traced)
+    Orch->>Gen: POST /generate (Input/Output paths)
+    Gen->>LS: 📊 Trace: crewai_generate_jolt_spec
+    Gen->>Drive: Read Files (input.json/output.json)
+    Drive-->>Gen: File Content
+    Gen-->>Orch: Returns initial jolt_spec.json
+    Gen->>LS: 📊 Trace: Generation Complete
+
+    Note over Orch, Val: Phase 3: Validation (Traced)
+    Orch->>Val: POST /validate-with-a2a (jolt_spec)
+    Val->>LS: 📊 Trace: langgraph_validate_spec
+    Val->>Drive: Read Files (input.json/output.json)
+    Drive-->>Val: Returns Source & Expected Data
+    
+    rect rgb(240, 240, 255)
+        Note right of Val: Phase 4: A2A Collaborative Debugging
+        Val->>Jolt: Transform (via MCP)
+        Jolt-->>Val: Transformation Result
+        
+        loop Until Valid or Max Retries (3)
+            alt Validation Fails
+                Val->>Gen: POST /refine (ERROR_REPORT)
+                Gen->>LS: 📊 Trace: crewai_refine_jolt_spec
+                Gen-->>Val: PATCH_PROPOSAL (New Spec)
+                Val->>Jolt: Re-transform with New Spec
+                Jolt-->>Val: New Result
+            else Validation Succeeds
+                Val->>Val: Mark Complete ✅
+            end
+        end
+    end
+
+    alt A2A Succeeded
+        Val-->>Orch: Final Validated Spec & Report
+        Orch-->>User: Display Results ✅
+    else A2A Failed (Max Retries)
+        Val-->>Orch: Partial Result + Errors
+        Orch-->>User: Display HITL Interface ⚠️
+        
+        rect rgb(255, 250, 220)
+            Note over User, Gen: Phase 5: Human-in-the-Loop (HITL)
+            alt AI-Assisted Refinement
+                User->>Orch: Natural Language Feedback
+                Orch->>Gen: POST /refine-with-prompt
+                Gen->>LS: 📊 Trace: crewai_refine_with_prompt
+                Gen-->>Orch: Refined Spec
+                Orch->>Val: POST /validate (new spec)
+                Val-->>Orch: Validation Result
+                Orch-->>User: Updated Results
+            else Manual Edit
+                User->>User: Edit Jolt Spec JSON
+                User->>Orch: POST /validate (edited spec)
+                Orch->>Val: Validate edited spec
+                Val-->>Orch: Validation Result
+                Orch-->>User: Updated Results
+            end
+        end
+    end

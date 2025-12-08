@@ -1,0 +1,15 @@
+{
+    "name": "Jolt Validator",
+    "description": "An AI agent that validates Jolt specifications against expected output.",
+    "capabilities": [
+        {
+            "name": "validate_spec",
+            "description": "Validate a Jolt spec against input and expected output"
+        }
+    ],
+    "api_base_url": "http://jolt-validator-service.jolt-platform.svc.cluster.local:8080",
+    "endpoints": {
+        "tasks": "/tasks",
+        "run": "/run"
+    }
+}

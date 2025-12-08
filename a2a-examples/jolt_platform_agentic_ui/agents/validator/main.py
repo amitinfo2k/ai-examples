@@ -72,6 +72,13 @@ async def validate_with_a2a_collaboration(request: ValidateRequest, max_retries:
         raise HTTPException(status_code=500, detail=f"A2A validation failed: {str(e)}")
 
 
+from fastapi.responses import FileResponse
+
+@app.get("/.well-known/agent.json")
+async def get_agent_card():
+    """Serve the Agent Card for discovery"""
+    return FileResponse("agents/validator/agent.json")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)

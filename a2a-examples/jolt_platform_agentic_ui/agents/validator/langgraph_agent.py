@@ -120,7 +120,7 @@ class JoltValidator:
             "is_valid": final_state["validation_result"].is_valid if final_state["validation_result"] else False,
             "errors": final_state["error_reports"],
             "actual_output": final_state["actual_output"],
-            "a2a_messages": [msg.model_dump() for msg in self.protocol.get_conversation_history()],
+            "a2a_messages": self.protocol.get_conversation_history(),
             "logs": final_state["logs"]
         }
     
@@ -132,18 +132,10 @@ class JoltValidator:
         max_retries: int = 3
     ) -> Dict[str, Any]:
         """
-        Validate with A2A refinement loop - implements collaborative debugging
-        
-        Args:
-            input_json: Input JSON data
-            expected_output: Expected output JSON
-            jolt_spec: Initial Jolt specification
-            max_retries: Maximum number of refinement attempts
-            
-        Returns:
-            Dictionary with final validation results and refined spec
+        Validate with A2A refinement loop - implements collaborative debugging using ADK Task Lifecycle
         """
         import httpx
+        import asyncio
         
         current_spec = jolt_spec
         all_logs = []
@@ -190,22 +182,75 @@ class JoltValidator:
                         else:
                             errors_to_send.append(err)
                     
-                    # Call generator's /refine endpoint directly (A2A communication)
+                    # ADK Task Lifecycle: 1. Submit Task
                     async with httpx.AsyncClient(timeout=300.0) as client:
-                        logger.info(f"Sending ERROR_REPORT to Generator at {self.generator_url}/refine")
+                        # Discovery Phase: Fetch Agent Card
+                        try:
+                            discovery_url = f"{self.generator_url}/.well-known/agent.json"
+                            logger.info(f"Discovery: Fetching Agent Card from {discovery_url}")
+                            agent_card_resp = await client.get(discovery_url)
+                            if agent_card_resp.status_code == 200:
+                                agent_card = agent_card_resp.json()
+                                # Log Discovery Interaction
+                                self.protocol.log_interaction(
+                                    source="validator",
+                                    target="generator",
+                                    action="discovery",
+                                    details=agent_card
+                                )
+                                all_logs.append(f"Discovered Agent: {agent_card.get('name')} ({discovery_url})")
+                        except Exception as e:
+                            logger.warning(f"Discovery failed: {e}")
+                        
+                        logger.info(f"Submitting Refinement Task to Generator at {self.generator_url}/tasks")
                         response = await client.post(
-                            f"{self.generator_url}/refine",
+                            f"{self.generator_url}/tasks",
                             json={
-                                "current_spec": current_spec,
-                                "error_report": errors_to_send
+                                "task_type": "refine",
+                                "input_data": {
+                                    "current_spec": current_spec,
+                                    "error_report": errors_to_send
+                                }
                             }
                         )
                         response.raise_for_status()
-                        refine_result = response.json()
-                        current_spec = refine_result.get("jolt_spec")
+                        task_info = response.json()
+                        task_id = task_info["task_id"]
+                        logger.info(f"Task submitted. Task ID: {task_id}")
+                        all_logs.append(f"Refinement task submitted (ID: {task_id}). Waiting for completion...")
                         
-                        logger.info("Received PATCH_PROPOSAL from Generator")
-                        all_logs.append("Received refined spec from Generator via A2A protocol")
+                        # ADK Task Lifecycle: 2. Poll for Completion
+                        # (In production, use webhooks or async events if supported)
+                        max_poll_attempts = 60 # 5 minutes max (5s interval)
+                        poll_interval = 5
+                        
+                        for _ in range(max_poll_attempts):
+                            await asyncio.sleep(poll_interval)
+                            status_resp = await client.get(f"{self.generator_url}/tasks/{task_id}")
+                            status_resp.raise_for_status()
+                            task_status = status_resp.json()
+                            
+                            if task_status["status"] == "completed":
+                                logger.info("Task completed successfully")
+                                refine_result = task_status["output"]
+                                current_spec = refine_result.get("jolt_spec")
+                                all_logs.append("Refinement task completed. Received new spec.")
+                                
+                                # Log the interaction (Generator -> Validator)
+                                self.protocol.log_interaction(
+                                    source="generator",
+                                    target="validator",
+                                    action="patch_proposal",
+                                    details={"jolt_spec": current_spec}
+                                )
+                                break
+                            elif task_status["status"] == "failed":
+                                error_msg = task_status.get("error", "Unknown error")
+                                raise Exception(f"Generator task failed: {error_msg}")
+                            
+                            logger.info(f"Task status: {task_status['status']}...")
+                        else:
+                            raise Exception("Task polling timed out")
                         
                 except httpx.HTTPError as e:
                     logger.error(f"A2A communication failed: {str(e)}")
@@ -276,9 +321,11 @@ class JoltValidator:
                 )
                 
                 # Send success message via A2A
-                state["a2a_protocol"].send_verification_result(
-                    state["validation_result"],
-                    state["conversation_id"]
+                state["a2a_protocol"].log_interaction(
+                    source="validator",
+                    target="generator",
+                    action="verification_result",
+                    details=state["validation_result"].model_dump()
                 )
             else:
                 logger.info(f"Validation failed: MISMATCH. Diff: {diff}")
@@ -305,13 +352,64 @@ class JoltValidator:
         state["logs"] = logs
         return state
     
-    def analyze_errors_node(self, state: ValidatorState) -> ValidatorState:
-        """Analyze errors and send an A2A error report."""
-        logger.info(f"Analyzing {len(state['error_reports'])} errors and sending report")
+    async def analyze_errors_node(self, state: ValidatorState) -> ValidatorState:
+        """Analyze errors using LLM and send an A2A error report."""
+        logger.info(f"Analyzing {len(state['error_reports'])} errors with LLM")
+        
+        try:
+            # Initialize Gemini LLM
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            llm = ChatGoogleGenerativeAI(
+                model=os.getenv("GEMINI_MODEL", "gemini-pro"),
+                temperature=0.1,
+                google_api_key=os.getenv("GOOGLE_API_KEY")
+            )
+            
+            # Construct prompt for analysis
+            prompt = f"""
+            You are an expert Jolt transformation validator.
+            
+            Analyze the following validation failure:
+            
+            Input JSON:
+            {json.dumps(state['input_json'], indent=2)}
+            
+            Expected Output:
+            {json.dumps(state['expected_output'], indent=2)}
+            
+            Actual Output:
+            {json.dumps(state['actual_output'], indent=2)}
+            
+            Current Jolt Spec:
+            {json.dumps(state['jolt_spec'], indent=2)}
+            
+            Errors Found:
+            {json.dumps([e.model_dump() for e in state['error_reports']], indent=2)}
+            
+            Provide a concise but technical analysis of why the transformation failed and what specific changes are needed in the Jolt spec to fix it.
+            Focus on the Jolt operations (shift, default, etc.) and path matching.
+            """
+            
+            # Get analysis from LLM
+            response = await llm.ainvoke(prompt)
+            analysis = response.content
+            
+            # Add analysis to the first error report or create a summary report
+            if state["error_reports"]:
+                state["error_reports"][0].error_description += f"\n\nAI Analysis:\n{analysis}"
+            
+            logger.info("LLM analysis completed and added to error report")
+            
+        except Exception as e:
+            logger.error(f"LLM analysis failed: {str(e)}")
+            # Continue without LLM analysis
+        
         # Send error report to Generator
-        state["a2a_protocol"].send_error_report(
-            state["error_reports"],
-            state["conversation_id"]
+        state["a2a_protocol"].log_interaction(
+            source="validator",
+            target="generator",
+            action="error_report",
+            details=[e.model_dump() for e in state["error_reports"]]
         )
         return state
 

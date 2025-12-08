@@ -192,9 +192,10 @@ sequenceDiagram
     end
 ```
 
-### 3.2 Simplified Logical Flow (with HITL & Tracing)
+### 3.2 Simplified Logical Flows
 
-This simplified diagram abstracts the infrastructure details to highlight the logical interaction, including the **autonomous A2A loop**, **HITL fallback**, and **observability layer**.
+#### 3.2.1 Autonomous A2A Flow
+This diagram shows the standard success path where the agents collaborate to solve the problem without human intervention.
 
 ```mermaid
 sequenceDiagram
@@ -203,11 +204,14 @@ sequenceDiagram
     participant Orch as Orchestrator
     participant Gen as Generator
     participant Val as Validator
+    participant LLM as 🧠 Gemini
     participant LS as 📊 LangSmith
 
     User->>Orch: Start Workflow
     Orch->>Gen: "Create Jolt Spec"
     Gen->>LS: Trace: Generation Started
+    Gen->>LLM: Generate Spec
+    LLM-->>Gen: Spec Content
     Gen-->>Orch: Draft Spec
     Gen->>LS: Trace: Generation Complete
     
@@ -217,34 +221,53 @@ sequenceDiagram
     rect rgb(200, 255, 200)
         Note over Gen, Val: Autonomous "A2A" Debugging Loop
         loop Until Valid or Max Retries (3)
-            Val->>Gen: "Error Report: Fix required"
+            Val->>LLM: Analyze Errors
+            LLM-->>Val: Fix Suggestions
+            Val->>Gen: "Error Report + AI Analysis"
             Gen->>LS: Trace: Refinement Attempt
+            Gen->>LLM: Refine Spec (Error Report)
+            LLM-->>Gen: Refined Spec
             Gen->>Val: "Patch Proposal: Try this"
         end
     end
     
-    alt A2A Success ✅
-        Val->>LS: Trace: Validation Success
-        Val-->>Orch: Verified Spec
-        Orch-->>User: Final Result
-    else A2A Failed (Needs HITL) ⚠️
-        Val->>LS: Trace: Validation Failed - HITL Required
-        Val-->>Orch: Partial Result + Errors
-        Orch-->>User: Show HITL Interface
-        
-        rect rgb(255, 245, 200)
-            Note over User, Gen: Human-in-the-Loop Intervention
-            alt 💬 AI-Assisted
-                User->>Gen: Natural Language Feedback
-                Gen->>LS: Trace: HITL Prompt Refinement
-                Gen-->>Val: Refined Spec
-            else ✏️ Manual Edit
-                User->>Val: Edited Spec JSON
-            end
-            Val->>Val: Re-validate
-            Val-->>Orch: Updated Result
-            Orch-->>User: Display Result
+    Val->>LS: Trace: Validation Success
+    Val-->>Orch: Verified Spec
+    Orch-->>User: Final Result
+```
+
+#### 3.2.2 Human-in-the-Loop (HITL) Flow
+This diagram illustrates the fallback process when the autonomous agents cannot resolve all validation errors, requiring human guidance.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User
+    participant Orch as Orchestrator
+    participant Gen as Generator
+    participant Val as Validator
+    participant LLM as 🧠 Gemini
+    participant LS as 📊 LangSmith
+
+    Note over Val, Orch: Scenario: A2A Failed (Max Retries)
+    Val->>LS: Trace: Validation Failed - HITL Required
+    Val-->>Orch: Partial Result + Errors
+    Orch-->>User: Show HITL Interface
+    
+    rect rgb(255, 245, 200)
+        Note over User, Gen: Human-in-the-Loop Intervention
+        alt 💬 AI-Assisted
+            User->>Gen: Natural Language Feedback
+            Gen->>LS: Trace: HITL Prompt Refinement
+            Gen->>LLM: Refine with Prompt
+            LLM-->>Gen: Refined Spec
+            Gen-->>Val: Refined Spec
+        else ✏️ Manual Edit
+            User->>Val: Edited Spec JSON
         end
+        Val->>Val: Re-validate
+        Val-->>Orch: Updated Result
+        Orch-->>User: Display Result
     end
 ```
 

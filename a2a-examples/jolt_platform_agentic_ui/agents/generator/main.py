@@ -141,6 +141,84 @@ async def refine_jolt_spec_with_prompt(request: PromptRefineRequest):
         raise HTTPException(status_code=500, detail=f"Prompt-based refinement failed: {error_msg}")
 
 
+from fastapi.responses import FileResponse
+import uuid
+import asyncio
+
+# ... (existing code)
+
+@app.get("/.well-known/agent.json")
+async def get_agent_card():
+    """Serve the Agent Card for discovery"""
+    return FileResponse("agents/generator/agent.json")
+
+# Simple in-memory task store for demo purposes
+# In production, use Redis or a database
+tasks_db = {}
+
+class TaskSubmission(BaseModel):
+    task_type: str  # "generate" or "refine"
+    input_data: Dict[str, Any]
+
+@app.post("/tasks")
+async def submit_task(submission: TaskSubmission):
+    """Submit a task (ADK lifecycle: Submitted)"""
+    task_id = str(uuid.uuid4())
+    tasks_db[task_id] = {
+        "id": task_id,
+        "status": "submitted",
+        "type": submission.task_type,
+        "input": submission.input_data,
+        "output": None,
+        "error": None
+    }
+    
+    # Start processing in background
+    asyncio.create_task(process_task(task_id))
+    
+    return {"task_id": task_id, "status": "submitted"}
+
+@app.get("/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    """Get task status (ADK lifecycle: Working/Completed)"""
+    if task_id not in tasks_db:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return tasks_db[task_id]
+
+async def process_task(task_id: str):
+    """Process the task in background"""
+    task = tasks_db[task_id]
+    task["status"] = "working"
+    
+    try:
+        generator = JoltSpecGenerator()
+        result = None
+        
+        if task["type"] == "generate":
+            # Extract args from input
+            input_data = task["input"]
+            result = generator.generate(
+                input_path=input_data.get("input_file_path"),
+                output_path=input_data.get("output_file_path"),
+                auth_token=input_data.get("auth_token")
+            )
+            task["output"] = {"jolt_spec": result}
+            
+        elif task["type"] == "refine":
+            input_data = task["input"]
+            result = generator.refine_spec(
+                current_spec=input_data.get("current_spec"),
+                error_report=input_data.get("error_report")
+            )
+            task["output"] = {"jolt_spec": result}
+            
+        task["status"] = "completed"
+        
+    except Exception as e:
+        logger.error(f"Task {task_id} failed: {e}")
+        task["status"] = "failed"
+        task["error"] = str(e)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8081)

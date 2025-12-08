@@ -15,10 +15,7 @@ data:
   
   # LangSmith Tracing Configuration (for CrewAI and LangGraph)
   # Set to "true" to enable tracing, "false" to disable
-  LANGCHAIN_TRACING_V2: "true"
+  LANGCHAIN_TRACING_V2: "false"
   LANGCHAIN_PROJECT: "jolt-platform"
   LANGCHAIN_ENDPOINT: "https://api.smith.langchain.com"
   
-  # CrewAI Telemetry Configuration
-  CREWAI_TELEMETRY: "true"
-  CREWAI_TRACING_ENABLED: "true"

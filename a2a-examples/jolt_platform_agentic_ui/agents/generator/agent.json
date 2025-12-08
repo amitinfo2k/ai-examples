@@ -1,0 +1,19 @@
+{
+  "name": "Jolt Generator",
+  "description": "An AI agent that generates Jolt specifications from input/output JSON pairs.",
+  "capabilities": [
+    {
+      "name": "generate_spec",
+      "description": "Generate a Jolt spec from input and output files"
+    },
+    {
+      "name": "refine_spec",
+      "description": "Refine a Jolt spec based on error reports"
+    }
+  ],
+  "api_base_url": "http://jolt-generator-service.jolt-platform.svc.cluster.local:8081",
+  "endpoints": {
+    "tasks": "/tasks",
+    "run": "/run"
+  }
+}

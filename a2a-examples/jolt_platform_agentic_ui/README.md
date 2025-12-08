@@ -14,33 +14,53 @@ This project showcases:
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Streamlit Frontend                       │
-│          (Auth · Workflow · Visualization)                  │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────────┐
-│              FastAPI Orchestrator (Port 8088)               │
-│    • Authentication & Authorization                         │
-│    • Task Management                                        │
-│    • Agent Coordination                                     │
-└──────┬──────────────────────┬──────────────────────┬────────┘
-       │                      │                      │
-       ▼                      ▼                      ▼
-┌─────────────┐      ┌─────────────┐      ┌─────────────────┐
-│ GDrive MCP  │      │  Agent 1    │      │   Agent 2       │
-│   Server    │◄─────│  (CrewAI)   │◄────►│  (LangGraph)    │
-│ (File I/O)  │      │  Generator  │ A2A  │   Validator     │
-└─────────────┘      └─────────────┘      └────────┬────────┘
-                                                    │
-                                                    ▼
-                                          ┌─────────────────┐
-                                          │  Jolt MCP       │
-                                          │  Server         │
-                                          │ (Transform)     │
-                                          └─────────────────┘
+```mermaid
+graph TD
+    Client[Streamlit Frontend] -->|HTTP/WebSocket| Orch[Orchestrator Service]
+    
+    subgraph "Jolt Platform"
+        Orch -->|1. Generate| Gen["Generator Agent<br/>(CrewAI)"]
+        Orch -->|2. Validate| Val["Validator Agent<br/>(LangGraph)"]
+        
+        %% A2A Communication
+        Val <-->|A2A Protocol ADK| Gen
+    end
+    
+    subgraph "A2A Detail (Validator -> Generator)"
+        direction TB
+        Discovery["1. Discovery<br/>GET /.well-known/agent.json"]
+        Submit["2. Submit Task<br/>POST /tasks"]
+        Poll["3. Poll Status<br/>GET /tasks/:id"]
+        
+        Val -.-> Discovery
+        Val -.-> Submit
+        Val -.-> Poll
+        Poll -.-> Gen
+    end
+    
+    subgraph "MCP Services"
+        Gen -->|Read Files| GDrive[GDrive MCP]
+        Val -->|Transform| JoltMCP[Jolt MCP Server]
+    end
+
+    subgraph "External Cloud Services"
+        Gemini[Google Gemini API]
+        LangSmith[LangSmith Observability]
+    end
+
+    Gen -.->|LLM Calls| Gemini
+    Gen -.->|Traces| LangSmith
+    Val -.->|Traces| LangSmith
+    
+    classDef service fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef agent fill:#bbf,stroke:#333,stroke-width:2px;
+    classDef mcp fill:#dfd,stroke:#333,stroke-width:2px;
+    classDef cloud fill:#ff9,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
+    
+    class Orch service;
+    class Gen,Val agent;
+    class GDrive,JoltMCP mcp;
+    class Gemini,LangSmith cloud;
 ```
 
 ## 🚀 Quick Start
@@ -159,12 +179,16 @@ jolt_platform_agentic_ui/
 
 ### Generator Service (Port 8081)
 - `GET /health` - Health check
-- `POST /generate` - Generate Jolt spec from input/output files
-- `POST /refine` - Refine Jolt spec based on validation errors (A2A endpoint)
+- `GET /.well-known/agent.json` - Agent Card (ADK Discovery)
+- `POST /tasks` - Submit Task (ADK Lifecycle)
+- `GET /tasks/{task_id}` - Poll Task Status (ADK Lifecycle)
+- `POST /generate` - Generate Jolt spec (Legacy/Direct)
+- `POST /refine` - Refine Jolt spec (Legacy/Direct)
 - `POST /refine-with-prompt` - HITL: Refine spec based on natural language feedback
 
 ### Validator Service (Port 8080)
 - `GET /health` - Health check
+- `GET /.well-known/agent.json` - Agent Card (ADK Discovery)
 - `POST /validate` - Single validation attempt
 - `POST /validate-with-a2a` - Validate with A2A collaborative debugging loop
 
@@ -184,11 +208,13 @@ The system implements true **Agent-to-Agent (A2A) Collaborative Debugging** with
        │
        ├─2─→ Validator: POST /validate-with-a2a (spec + max_retries=3)
        │     │
-       │     └─→ [Internal A2A Loop]:
+       │     └─→ [Internal A2A Loop (ADK)]:
        │         ┌─→ Validate spec
-       │         ├─→ If fails: Send ERROR_REPORT to Generator
-       │         ├─→ Generator: POST /refine
-       │         ├─→ Receives PATCH_PROPOSAL (refined spec)
+       │         ├─→ If fails:
+       │         │   1. Discovery: GET /.well-known/agent.json
+       │         │   2. Submit Task: POST /tasks (with error_report)
+       │         │   3. Poll Status: GET /tasks/{id}
+       │         │   4. Receive Result (refined spec)
        │         ├─→ Loop until success or max retries
        │         └─→ Returns final result
        │

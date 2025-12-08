@@ -649,10 +649,38 @@ if 'workflow_result' in st.session_state:
             messages = result["result"]["validation"]["a2a_messages"]
             
             if messages:
+                st.markdown("### Protocol Interaction Log")
+                
                 for i, msg in enumerate(messages):
-                    with st.chat_message(msg.get("sender", "unknown")):
-                        st.markdown(f"**{msg.get('message_type', 'Unknown Type')}**")
-                        st.json(msg.get("content", {}))
+                    # Handle both old (sender/message_type) and new (source/action) formats
+                    source = msg.get("source") or msg.get("sender", "unknown")
+                    target = msg.get("target") or msg.get("receiver", "unknown")
+                    action = msg.get("action") or msg.get("message_type", "Unknown Type")
+                    details = msg.get("details") or msg.get("content", {})
+                    timestamp = msg.get("timestamp", "")
+                    
+                    # Determine icon and label based on action
+                    icon = "📝"
+                    if "discovery" in action.lower():
+                        icon = "🔍"
+                    elif "error" in action.lower():
+                        icon = "❌"
+                    elif "patch" in action.lower() or "refine" in action.lower():
+                        icon = "🛠️"
+                    elif "verification" in action.lower() or "success" in action.lower():
+                        icon = "✅"
+                    
+                    # Format the header
+                    header = f"{icon} **{action.upper()}** | {source.title()} ➡️ {target.title()}"
+                    if timestamp:
+                        header += f" | 🕒 {timestamp}"
+                    
+                    # Display message container
+                    with st.container():
+                        st.markdown(header)
+                        with st.expander("View Details", expanded=False):
+                            st.json(details)
+                        st.divider()
             else:
                 st.info("No A2A messages (validation passed on first attempt)")
         else:

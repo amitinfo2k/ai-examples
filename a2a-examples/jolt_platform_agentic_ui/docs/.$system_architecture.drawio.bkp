@@ -1,256 +1,232 @@
-<mxfile host="app.diagrams.net" modified="2025-12-05T14:45:00.000Z" agent="Mozilla/5.0" version="22.1.0" type="device">
+<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.7.8 Chrome/128.0.6613.36 Electron/32.0.1 Safari/537.36" version="24.7.8">
   <diagram name="System Architecture" id="jolt-system-architecture">
-    <mxGraphModel dx="1434" dy="780" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+    <mxGraphModel dx="1367" dy="843" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        
-        <!-- User -->
-        <mxCell id="user" value="User" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+        <mxCell id="user" value="User" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;fontStyle=1;" parent="1" vertex="1">
           <mxGeometry x="40" y="300" width="80" height="80" as="geometry" />
         </mxCell>
-        
-        <!-- External Cloud Services Container -->
-        <mxCell id="external-container" value="External Cloud Services" style="swimlane;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=12;fontStyle=1;startSize=30;" vertex="1" parent="1">
+        <mxCell id="external-container" value="External Cloud Services" style="swimlane;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=12;fontStyle=1;startSize=30;" parent="1" vertex="1">
           <mxGeometry x="800" y="80" width="260" height="520" as="geometry" />
         </mxCell>
-        
-        <!-- Google Gemini API -->
-        <mxCell id="gemini" value="Google Gemini API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;fontSize=12;fontStyle=1;" vertex="1" parent="external-container">
+        <mxCell id="gemini" value="Google Gemini API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;fontSize=12;fontStyle=1;" parent="external-container" vertex="1">
           <mxGeometry x="30" y="60" width="200" height="60" as="geometry" />
         </mxCell>
-        
-        <!-- LangSmith Observability -->
-        <mxCell id="langsmith" value="LangSmith&#xa;Observability Platform" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;fontSize=12;fontStyle=1;" vertex="1" parent="external-container">
+        <mxCell id="langsmith" value="LangSmith&#xa;Observability Platform" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;fontSize=12;fontStyle=1;" parent="external-container" vertex="1">
           <mxGeometry x="30" y="400" width="200" height="80" as="geometry" />
         </mxCell>
-        
-        <!-- Kubernetes Cluster Container -->
-        <mxCell id="k8s-container" value="Kubernetes Cluster (Namespace: jolt-platform)" style="swimlane;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=3;fontSize=12;fontStyle=1;startSize=30;" vertex="1" parent="1">
-          <mxGeometry x="160" y="40" width="600" height="600" as="geometry" />
-        </mxCell>
-        
-        <!-- Streamlit Frontend -->
-        <mxCell id="frontend" value="Streamlit Frontend&#xa;(Port 8501)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1f5fe;strokeColor=#01579b;strokeWidth=2;fontSize=11;fontStyle=1;" vertex="1" parent="k8s-container">
-          <mxGeometry x="30" y="50" width="140" height="60" as="geometry" />
-        </mxCell>
-        
-        <!-- Orchestrator Service -->
-        <mxCell id="orchestrator" value="Orchestrator Service&#xa;(FastAPI - Port 8088)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1f5fe;strokeColor=#01579b;strokeWidth=2;fontSize=11;fontStyle=1;" vertex="1" parent="k8s-container">
-          <mxGeometry x="230" y="50" width="160" height="60" as="geometry" />
-        </mxCell>
-        
-        <!-- Agent Services Container -->
-        <mxCell id="agent-container" value="Agent Services" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;fontSize=11;fontStyle=1;startSize=25;" vertex="1" parent="k8s-container">
-          <mxGeometry x="30" y="150" width="540" height="180" as="geometry" />
-        </mxCell>
-        
-        <!-- Generator Agent -->
-        <mxCell id="generator" value="Generator Agent&#xa;(CrewAI)&#xa;Port 8081" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d4edda;strokeColor=#28a745;strokeWidth=2;fontSize=11;fontStyle=1;" vertex="1" parent="agent-container">
-          <mxGeometry x="30" y="40" width="220" height="120" as="geometry" />
-        </mxCell>
-        
-        <!-- Validator Agent -->
-        <mxCell id="validator" value="Validator Agent&#xa;(LangGraph)&#xa;Port 8080" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cce5ff;strokeColor=#004085;strokeWidth=2;fontSize=11;fontStyle=1;" vertex="1" parent="agent-container">
-          <mxGeometry x="290" y="40" width="220" height="120" as="geometry" />
-        </mxCell>
-        
-        <!-- MCP Services Container -->
-        <mxCell id="mcp-container" value="MCP Services (Model Context Protocol)" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;fontSize=11;fontStyle=1;startSize=25;" vertex="1" parent="k8s-container">
-          <mxGeometry x="30" y="370" width="540" height="200" as="geometry" />
-        </mxCell>
-        
-        <!-- Google Drive MCP -->
-        <mxCell id="drive-mcp" value="Google Drive MCP&#xa;(File Access)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8d7da;strokeColor=#721c24;strokeWidth=2;fontSize=11;fontStyle=1;" vertex="1" parent="mcp-container">
-          <mxGeometry x="30" y="50" width="220" height="120" as="geometry" />
-        </mxCell>
-        
-        <!-- Jolt MCP -->
-        <mxCell id="jolt-mcp" value="Jolt Transformation MCP&#xa;(Go Server)&#xa;Port 8081" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2d5f1;strokeColor=#6f42c1;strokeWidth=2;fontSize=11;fontStyle=1;" vertex="1" parent="mcp-container">
-          <mxGeometry x="290" y="50" width="220" height="120" as="geometry" />
-        </mxCell>
-        
-        <!-- Arrows/Connections -->
-        
-        <!-- User to Frontend -->
-        <mxCell id="edge1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;endArrow=classic;endFill=1;startArrow=classic;startFill=1;" edge="1" parent="1" source="user" target="frontend">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="edge1-label" value="HTTPS" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;" vertex="1" connectable="0" parent="edge1">
-          <mxGeometry x="-0.2" relative="1" as="geometry">
-            <mxPoint as="offset" />
+        <mxCell id="edge9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d79b00;endArrow=classic;endFill=1;startArrow=classic;startFill=1;" parent="external-container" source="validator" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-360" y="180" as="sourcePoint" />
+            <mxPoint x="130" y="90" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        
-        <!-- Frontend to Orchestrator -->
-        <mxCell id="edge2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;endArrow=classic;endFill=1;startArrow=classic;startFill=1;" edge="1" parent="1" source="frontend" target="orchestrator">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="validator" value="Validator Agent&lt;br&gt;(LangGraph)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cce5ff;strokeColor=#004085;strokeWidth=2;fontSize=11;fontStyle=1;" parent="external-container" vertex="1">
+          <mxGeometry x="-260" y="170" width="160" height="90" as="geometry" />
         </mxCell>
-        <mxCell id="edge2-label" value="REST" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;" vertex="1" connectable="0" parent="edge2">
-          <mxGeometry x="-0.2" relative="1" as="geometry">
-            <mxPoint as="offset" />
-          </mxGeometry>
-        </mxCell>
-        
-        <!-- Orchestrator to Generator -->
-        <mxCell id="edge3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#28a745;endArrow=classic;endFill=1;" edge="1" parent="1" source="orchestrator" target="generator">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="edge3-label" value="REST" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#28a745;" vertex="1" connectable="0" parent="edge3">
-          <mxGeometry x="-0.2" relative="1" as="geometry">
-            <mxPoint as="offset" />
-          </mxGeometry>
-        </mxCell>
-        
-        <!-- Orchestrator to Validator -->
-        <mxCell id="edge4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#004085;endArrow=classic;endFill=1;" edge="1" parent="1" source="orchestrator" target="validator">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="edge4-label" value="REST" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#004085;" vertex="1" connectable="0" parent="edge4">
-          <mxGeometry x="-0.2" relative="1" as="geometry">
-            <mxPoint as="offset" />
-          </mxGeometry>
-        </mxCell>
-        
-        <!-- Validator to Generator (A2A) -->
-        <mxCell id="edge5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#ff6600;endArrow=classic;endFill=1;startArrow=classic;startFill=1;dashed=0;" edge="1" parent="1" source="validator" target="generator">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="edge5-label" value="A2A Protocol" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#ff6600;" vertex="1" connectable="0" parent="edge5">
-          <mxGeometry x="-0.2" relative="1" as="geometry">
-            <mxPoint as="offset" />
-          </mxGeometry>
-        </mxCell>
-        
-        <!-- Generator to Drive MCP -->
-        <mxCell id="edge6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#721c24;endArrow=classic;endFill=1;" edge="1" parent="1" source="generator" target="drive-mcp">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="edge6-label" value="MCP" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#721c24;" vertex="1" connectable="0" parent="edge6">
-          <mxGeometry x="-0.2" relative="1" as="geometry">
-            <mxPoint as="offset" />
-          </mxGeometry>
-        </mxCell>
-        
-        <!-- Validator to Drive MCP -->
-        <mxCell id="edge7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#721c24;endArrow=classic;endFill=1;" edge="1" parent="1" source="validator" target="drive-mcp">
+        <mxCell id="edge11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;endArrow=classic;endFill=1;dashed=1;" parent="external-container" source="validator" target="langsmith" edge="1">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="700" y="360" />
-              <mxPoint x="700" y="500" />
+              <mxPoint x="-30" y="220" />
+              <mxPoint x="-30" y="440" />
             </Array>
           </mxGeometry>
         </mxCell>
-        
-        <!-- Validator to Jolt MCP -->
-        <mxCell id="edge8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#6f42c1;endArrow=classic;endFill=1;" edge="1" parent="1" source="validator" target="jolt-mcp">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="edge8-label" value="MCP" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#6f42c1;" vertex="1" connectable="0" parent="edge8">
+        <mxCell id="edge11-label" value="Traces" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=2;fontColor=#999999;" parent="edge11" vertex="1" connectable="0">
           <mxGeometry x="-0.2" relative="1" as="geometry">
             <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
-        
-        <!-- Generator to Gemini -->
-        <mxCell id="edge9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d79b00;endArrow=classic;endFill=1;startArrow=classic;startFill=1;" edge="1" parent="1" source="generator" target="gemini">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="k8s-container" value="Kubernetes Cluster (Namespace: jolt-platform)" style="swimlane;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=3;fontSize=12;fontStyle=1;startSize=30;" parent="1" vertex="1">
+          <mxGeometry x="160" y="40" width="600" height="600" as="geometry" />
         </mxCell>
-        <mxCell id="edge9-label" value="HTTPS / LLM Calls" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#d79b00;" vertex="1" connectable="0" parent="edge9">
-          <mxGeometry x="-0.2" relative="1" as="geometry">
-            <mxPoint as="offset" />
-          </mxGeometry>
+        <mxCell id="frontend" value="Streamlit Frontend&#xa;(Port 8501)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1f5fe;strokeColor=#01579b;strokeWidth=2;fontSize=11;fontStyle=1;" parent="k8s-container" vertex="1">
+          <mxGeometry x="18" y="50" width="140" height="60" as="geometry" />
         </mxCell>
-        
-        <!-- Generator to LangSmith (Tracing) -->
-        <mxCell id="edge10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;endArrow=classic;endFill=1;dashed=1;" edge="1" parent="1" source="generator" target="langsmith">
+        <mxCell id="orchestrator" value="Orchestrator Service&#xa;(FastAPI - Port 8088)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1f5fe;strokeColor=#01579b;strokeWidth=2;fontSize=11;fontStyle=1;" parent="k8s-container" vertex="1">
+          <mxGeometry x="230" y="50" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="agent-container" value="Agent Services" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;fontSize=11;fontStyle=1;startSize=25;" parent="k8s-container" vertex="1">
+          <mxGeometry x="30" y="150" width="540" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="generator" value="Generator Agent&lt;br&gt;(CrewAI)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d4edda;strokeColor=#28a745;strokeWidth=2;fontSize=11;fontStyle=1;" parent="agent-container" vertex="1">
+          <mxGeometry x="60" y="30" width="170" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="mcp-container" value="MCP Services (Model Context Protocol)" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;fontSize=11;fontStyle=1;startSize=25;" parent="k8s-container" vertex="1">
+          <mxGeometry x="30" y="370" width="540" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="drive-mcp" value="Google Drive MCP&#xa;(File Access)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8d7da;strokeColor=#721c24;strokeWidth=2;fontSize=11;fontStyle=1;" parent="mcp-container" vertex="1">
+          <mxGeometry x="50" y="50" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="jolt-mcp" value="Jolt Transformation MCP&lt;br&gt;(Go Server)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2d5f1;strokeColor=#6f42c1;strokeWidth=2;fontSize=11;fontStyle=1;" parent="mcp-container" vertex="1">
+          <mxGeometry x="350" y="50" width="160" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="edge1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;endArrow=classic;endFill=1;startArrow=classic;startFill=1;" parent="1" source="user" target="frontend" edge="1">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="750" y="280" />
+              <mxPoint x="130" y="340" />
+              <mxPoint x="130" y="120" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge1-label" value="HTTPS" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;" parent="edge1" vertex="1" connectable="0">
+          <mxGeometry x="-0.2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;endArrow=classic;endFill=1;startArrow=classic;startFill=1;" parent="1" source="frontend" target="orchestrator" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge2-label" value="REST" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;" parent="edge2" vertex="1" connectable="0">
+          <mxGeometry x="-0.2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#28a745;endArrow=classic;endFill=1;" parent="1" source="orchestrator" target="generator" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="470" y="180" />
+              <mxPoint x="335" y="180" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge3-label" value="REST" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#28a745;" parent="edge3" vertex="1" connectable="0">
+          <mxGeometry x="-0.2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#004085;endArrow=classic;endFill=1;" parent="1" source="orchestrator" target="validator" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="470" y="180" />
+              <mxPoint x="620" y="180" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge4-label" value="REST" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#004085;" parent="edge4" vertex="1" connectable="0">
+          <mxGeometry x="-0.2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#ff6600;endArrow=classic;endFill=1;startArrow=classic;startFill=1;dashed=0;" parent="1" source="validator" target="generator" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge5-label" value="A2A Protocol" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#ff6600;" parent="edge5" vertex="1" connectable="0">
+          <mxGeometry x="-0.2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#721c24;endArrow=classic;endFill=1;" parent="1" source="generator" target="drive-mcp" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge6-label" value="MCP" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#721c24;" parent="edge6" vertex="1" connectable="0">
+          <mxGeometry x="-0.2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#721c24;endArrow=classic;endFill=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;" parent="1" source="validator" target="drive-mcp" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="580" y="360" />
+              <mxPoint x="480" y="360" />
+              <mxPoint x="480" y="500" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#6f42c1;endArrow=classic;endFill=1;" parent="1" source="validator" target="jolt-mcp" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge8-label" value="MCP" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#6f42c1;" parent="edge8" vertex="1" connectable="0">
+          <mxGeometry x="-0.2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;endArrow=classic;endFill=1;dashed=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;" parent="1" source="generator" target="langsmith" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="378" y="350" />
+              <mxPoint x="750" y="350" />
               <mxPoint x="750" y="520" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge10-label" value="Traces" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=2;fontColor=#999999;" vertex="1" connectable="0" parent="edge10">
+        <mxCell id="edge10-label" value="Traces" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=2;fontColor=#999999;" parent="edge10" vertex="1" connectable="0">
           <mxGeometry x="-0.2" relative="1" as="geometry">
-            <mxPoint as="offset" />
+            <mxPoint x="-101" as="offset" />
           </mxGeometry>
         </mxCell>
-        
-        <!-- Validator to LangSmith (Tracing) -->
-        <mxCell id="edge11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;endArrow=classic;endFill=1;dashed=1;" edge="1" parent="1" source="validator" target="langsmith">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="770" y="300" />
-              <mxPoint x="770" y="520" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="edge11-label" value="Traces" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=2;fontColor=#999999;" vertex="1" connectable="0" parent="edge11">
-          <mxGeometry x="-0.2" relative="1" as="geometry">
-            <mxPoint as="offset" />
-          </mxGeometry>
-        </mxCell>
-        
-        <!-- Legend -->
-        <mxCell id="legend" value="Legend" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=1;fontSize=11;fontStyle=1;startSize=20;" vertex="1" parent="1">
+        <mxCell id="legend" value="Legend" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=1;fontSize=11;fontStyle=1;startSize=20;" parent="1" vertex="1">
           <mxGeometry x="40" y="450" width="100" height="190" as="geometry" />
         </mxCell>
-        
-        <mxCell id="legend1" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1f5fe;strokeColor=#01579b;strokeWidth=2;" vertex="1" parent="legend">
+        <mxCell id="legend1" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1f5fe;strokeColor=#01579b;strokeWidth=2;" parent="legend" vertex="1">
           <mxGeometry x="10" y="30" width="20" height="15" as="geometry" />
         </mxCell>
-        <mxCell id="legend1-text" value="K8s Service" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" vertex="1" parent="legend">
+        <mxCell id="legend1-text" value="K8s Service" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" parent="legend" vertex="1">
           <mxGeometry x="35" y="28" width="60" height="20" as="geometry" />
         </mxCell>
-        
-        <mxCell id="legend2" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;" vertex="1" parent="legend">
+        <mxCell id="legend2" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;" parent="legend" vertex="1">
           <mxGeometry x="10" y="55" width="20" height="15" as="geometry" />
         </mxCell>
-        <mxCell id="legend2-text" value="External" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" vertex="1" parent="legend">
+        <mxCell id="legend2-text" value="External" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" parent="legend" vertex="1">
           <mxGeometry x="35" y="53" width="60" height="20" as="geometry" />
         </mxCell>
-        
-        <mxCell id="legend3" value="" style="endArrow=classic;html=1;strokeWidth=3;strokeColor=#ff6600;" edge="1" parent="legend">
+        <mxCell id="legend3" value="" style="endArrow=classic;html=1;strokeWidth=3;strokeColor=#ff6600;" parent="legend" edge="1">
           <mxGeometry width="50" height="50" relative="1" as="geometry">
             <mxPoint x="10" y="90" as="sourcePoint" />
             <mxPoint x="30" y="90" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="legend3-text" value="A2A" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" vertex="1" parent="legend">
+        <mxCell id="legend3-text" value="A2A" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" parent="legend" vertex="1">
           <mxGeometry x="35" y="80" width="60" height="20" as="geometry" />
         </mxCell>
-        
-        <mxCell id="legend4" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#333333;" edge="1" parent="legend">
+        <mxCell id="legend4" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#333333;" parent="legend" edge="1">
           <mxGeometry width="50" height="50" relative="1" as="geometry">
             <mxPoint x="10" y="115" as="sourcePoint" />
             <mxPoint x="30" y="115" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="legend4-text" value="REST/HTTP" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" vertex="1" parent="legend">
+        <mxCell id="legend4-text" value="REST/HTTP" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" parent="legend" vertex="1">
           <mxGeometry x="35" y="105" width="60" height="20" as="geometry" />
         </mxCell>
-        
-        <mxCell id="legend5" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;" edge="1" parent="legend">
+        <mxCell id="legend5" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;" parent="legend" edge="1">
           <mxGeometry width="50" height="50" relative="1" as="geometry">
             <mxPoint x="10" y="140" as="sourcePoint" />
             <mxPoint x="30" y="140" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="legend5-text" value="Tracing" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" vertex="1" parent="legend">
+        <mxCell id="legend5-text" value="Tracing" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" parent="legend" vertex="1">
           <mxGeometry x="35" y="130" width="60" height="20" as="geometry" />
         </mxCell>
-        
-        <mxCell id="legend6" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#6f42c1;" edge="1" parent="legend">
+        <mxCell id="legend6" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#6f42c1;" parent="legend" edge="1">
           <mxGeometry width="50" height="50" relative="1" as="geometry">
             <mxPoint x="10" y="165" as="sourcePoint" />
             <mxPoint x="30" y="165" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="legend6-text" value="MCP" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" vertex="1" parent="legend">
+        <mxCell id="legend6-text" value="MCP" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=9;" parent="legend" vertex="1">
           <mxGeometry x="35" y="155" width="60" height="20" as="geometry" />
         </mxCell>
-        
+        <mxCell id="aoTq9wS_qokkwdNXpMtS-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#d79b00;endArrow=classic;endFill=1;startArrow=classic;startFill=1;entryX=1.006;entryY=0.189;entryDx=0;entryDy=0;entryPerimeter=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="gemini" target="generator">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1240" y="340" as="sourcePoint" />
+            <mxPoint x="1730" y="250" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="930" y="240" />
+              <mxPoint x="421" y="240" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="aoTq9wS_qokkwdNXpMtS-2" value="HTTPS / LLM Calls" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#d79b00;" vertex="1" connectable="0" parent="aoTq9wS_qokkwdNXpMtS-1">
+          <mxGeometry x="-0.2" relative="1" as="geometry">
+            <mxPoint x="130" y="20" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="aoTq9wS_qokkwdNXpMtS-3" value="MCP" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fontColor=#721c24;" vertex="1" connectable="0" parent="1">
+          <mxGeometry x="345" y="389" as="geometry">
+            <mxPoint x="130" y="2" as="offset" />
+          </mxGeometry>
+        </mxCell>
       </root>
     </mxGraphModel>
   </diagram>
